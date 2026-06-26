@@ -1,7 +1,7 @@
-- id: undersort
-  name: undersort
-  description: Sort class methods by visibility (public, protected, private)
-  entry: undersort
+- id: funcsort
+  name: funcsort
+  description: Sort class methods and module-level functions into configurable groups
+  entry: funcsort
   language: python
   types: [python]
   require_serial: false

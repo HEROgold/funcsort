@@ -1,6 +1,6 @@
 """Core sorting logic for class methods and module-level functions.
 
-The transformer is a thin libcst adapter over the pure model in :mod:`undersort.groups`.
+The transformer is a thin libcst adapter over the pure model in :mod:`funcsort.groups`.
 A single shared helper (:func:`_sort_block`) reorders the members of any block — a class
 body or the module body — so class and module scope share one implementation.
 """
@@ -8,16 +8,15 @@ body or the module body — so class and module scope share one implementation.
 from __future__ import annotations
 
 import difflib
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import libcst as cst
 
-from undersort import logger
-from undersort.groups import (
-    DEFAULT_CREATIONAL_DUNDERS,
+from funcsort import logger
+from funcsort.groups import (
     Group,
     Member,
     MemberKind,
@@ -25,11 +24,9 @@ from undersort.groups import (
     Scope,
     classify,
     default_groups,
-    groups_for_order,
 )
 
-# Re-exported for backward compatibility with callers that imported it from here.
-__all__ = ["DEFAULT_CREATIONAL_DUNDERS", "BlockSortResult", "MethodSorter", "SortResult", "sort_file"]
+_DEFAULT_METHOD_TYPE_ORDER = [MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.STATIC]
 
 
 @dataclass(frozen=True)
@@ -83,25 +80,30 @@ def file_has_nosort(module: cst.Module) -> bool:
 
 def get_method_type(method: cst.FunctionDef) -> MethodKind:
     """Determine a function's binding from its decorators."""
-    for decorator in method.decorators:
-        decorator_name = decorator.decorator
-        if isinstance(decorator_name, cst.Name):
-            if decorator_name.value == "classmethod":
-                return MethodKind.CLASS
-            if decorator_name.value == "staticmethod":
-                return MethodKind.STATIC
+    for name in _decorator_names(method):
+        if name == "classmethod":
+            return MethodKind.CLASS
+        if name == "staticmethod":
+            return MethodKind.STATIC
     return MethodKind.INSTANCE
 
 
-def get_method_visibility(
-    method_name: str,
-    creational_dunders: tuple[str, ...] | list[str] | None = None,
-) -> str:
-    """Return the default group name a method name falls into (compatibility shim)."""
-    dunders = tuple(creational_dunders) if creational_dunders is not None else DEFAULT_CREATIONAL_DUNDERS
-    member = Member(0, None, MemberKind.FUNCTION, method_name, MethodKind.INSTANCE, Scope.CLASS)
-    result = classify(member, default_groups(dunders))
-    return result.group.name if result.group else "public"
+def _decorator_names(method: cst.FunctionDef) -> tuple[str, ...]:
+    """Return the normalised dotted names of a function's decorators (calls stripped)."""
+    return tuple(name for name in (_decorator_name(d.decorator) for d in method.decorators) if name)
+
+
+def _decorator_name(node: cst.BaseExpression) -> str:
+    """Normalise a decorator expression to its dotted name (``a.b.c``), stripping calls."""
+    if isinstance(node, cst.Call):
+        node = node.func
+    parts: list[str] = []
+    while isinstance(node, cst.Attribute):
+        parts.append(node.attr.value)
+        node = node.value
+    if isinstance(node, cst.Name):
+        parts.append(node.value)
+    return ".".join(reversed(parts))
 
 
 def _assignment_target_name(line: cst.SimpleStatementLine) -> str | None:
@@ -121,7 +123,15 @@ def _assignment_target_name(line: cst.SimpleStatementLine) -> str | None:
 def _as_member(index: int, node: cst.BaseStatement, scope: Scope) -> Member | None:
     """Build a :class:`Member` for a sortable statement, or None for structural items."""
     if isinstance(node, cst.FunctionDef):
-        return Member(index, node, MemberKind.FUNCTION, node.name.value, get_method_type(node), scope)
+        return Member(
+            index,
+            node,
+            MemberKind.FUNCTION,
+            node.name.value,
+            get_method_type(node),
+            scope,
+            _decorator_names(node),
+        )
     if isinstance(node, cst.SimpleStatementLine):
         name = _assignment_target_name(node)
         if name is not None:
@@ -139,7 +149,7 @@ def _effective_method_type_order(method_type_order: list[MethodKind]) -> list[Me
 _Placed = tuple[int, Member]
 
 
-def _order_bucket(bucket: Iterable[_Placed], current_position: int) -> list[Member]:
+def _order_bucket(bucket: list[_Placed], current_position: int) -> list[Member]:
     """Order one bucket, minimising movement relative to the candidate sequence.
 
     Members that started before the bucket's span (or before what is already placed) go
@@ -221,8 +231,8 @@ class MethodSorter(cst.CSTTransformer):
 
     def __init__(
         self,
-        groups: Iterable[Group],
-        method_type_order: Iterable[MethodKind],
+        groups: list[Group],
+        method_type_order: list[MethodKind],
         sort_module: bool = True,
     ) -> None:
         """Initialise the transformer with resolved configuration."""
@@ -234,21 +244,22 @@ class MethodSorter(cst.CSTTransformer):
 
     def leave_ClassDef(self, original_node: cst.ClassDef, updated_node: cst.ClassDef) -> cst.ClassDef:  # noqa: N802, ARG002
         """Sort the methods within a class definition."""
-        if has_nosort_comment(updated_node):
+        body = updated_node.body
+        if has_nosort_comment(updated_node) or not isinstance(body, cst.IndentedBlock):
             return updated_node
-        result = self._apply(list(updated_node.body.body), Scope.CLASS)
-        if result is None:
+        new_body = self._apply(list(body.body), Scope.CLASS)
+        if new_body is None:
             return updated_node
-        return updated_node.with_changes(body=updated_node.body.with_changes(body=result))
+        return updated_node.with_changes(body=body.with_changes(body=new_body))
 
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:  # noqa: N802, ARG002
         """Sort the top-level functions of a module when enabled."""
         if not self.sort_module:
             return updated_node
-        result = self._apply(list(updated_node.body), Scope.MODULE)
-        if result is None:
+        new_body = self._apply(list(updated_node.body), Scope.MODULE)
+        if new_body is None:
             return updated_node
-        return updated_node.with_changes(body=result)
+        return updated_node.with_changes(body=new_body)
 
     def _apply(self, body: list[cst.BaseStatement], scope: Scope) -> list[cst.BaseStatement] | None:
         """Run the shared sorter on a block; record state; return the new body or None."""
@@ -265,46 +276,31 @@ class MethodSorter(cst.CSTTransformer):
         return result.new_body
 
 
-def _resolve_groups(
-    groups: Iterable[Group] | None,
-    order: Iterable[str] | None,
-    creational_dunders: Iterable[str] | None,
-) -> list[Group]:
-    """Resolve explicit groups or a legacy ``order`` into a group list."""
-    if groups is not None:
-        return groups
-    dunders = tuple(creational_dunders) if creational_dunders is not None else DEFAULT_CREATIONAL_DUNDERS
-    if order is not None:
-        return groups_for_order(order, dunders)
-    return default_groups(dunders)
-
-
-def _resolve_method_type_order(method_type_order: list[Any] | None) -> list[MethodKind]:
-    """Coerce a method type order (strings or enums) into :class:`MethodKind` values."""
-    if not method_type_order:
-        return [MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.STATIC]
-    return [MethodKind(value) for value in method_type_order]
-
-
 def sort_file(
     file_path: Path,
-    order: Iterable[str] | None = None,
-    method_type_order: Iterable[Any] | None = None,
+    groups: list[Group] | None = None,
+    method_type_order: list[MethodKind] | None = None,
+    *,
+    sort_module: bool = True,
     check_only: bool = False,
     show_diff: bool = False,
-    creational_dunders: Iterable[str] | None = None,
-    *,
-    groups: Iterable[Group] | None = None,
-    sort_module: bool = True,
 ) -> SortResult:
     """Sort the methods (and optionally module functions) of a Python file.
 
-    Either pass explicit ``groups`` (new API) or a legacy ``order`` list; when neither is
-    given the built-in default groups are used.
+    Args:
+        file_path: The Python file to sort.
+        groups: Ordered groups; defaults to the built-in groups when omitted.
+        method_type_order: Secondary ordering; defaults to instance/class/static.
+        sort_module: Whether to sort module-level functions.
+        check_only: If True, do not write changes back to disk.
+        show_diff: If True, print a unified diff of the changes.
 
     Returns:
         A :class:`SortResult` describing whether the file changed and any unmatched members.
     """
+    resolved_groups = groups if groups is not None else default_groups()
+    resolved_order = method_type_order if method_type_order is not None else list(_DEFAULT_METHOD_TYPE_ORDER)
+
     with open(file_path, encoding="utf-8") as f:
         source_code = f.read()
 
@@ -316,11 +312,7 @@ def sort_file(
     if file_has_nosort(tree):
         return SortResult(file_path, modified=False)
 
-    sorter = MethodSorter(
-        groups=_resolve_groups(groups, order, creational_dunders),
-        method_type_order=_resolve_method_type_order(method_type_order),
-        sort_module=sort_module,
-    )
+    sorter = MethodSorter(resolved_groups, resolved_order, sort_module=sort_module)
     new_tree = tree.visit(sorter)
 
     if not sorter.modified:

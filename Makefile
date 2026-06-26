@@ -17,7 +17,7 @@ test:
 	uv run pytest -v
 
 test-cov:
-	uv run pytest --cov=undersort --cov-report=term-missing --cov-report=html
+	uv run pytest --cov=funcsort --cov-report=term-missing --cov-report=html
 
 clean:
 	rm -rf .venv __pycache__ .pytest_cache .mypy_cache .ruff_cache

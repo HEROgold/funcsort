@@ -4,8 +4,8 @@ import tempfile
 from pathlib import Path
 from textwrap import dedent
 
-from undersort.groups import default_groups
-from undersort.sorter import sort_file
+from funcsort.groups import default_groups
+from funcsort.sorter import sort_file
 
 _INPUT = dedent('''\
     class Service:

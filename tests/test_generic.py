@@ -1,33 +1,48 @@
 """Tests for the generic engine: regex groups, scope/kind filters, module sorting."""
 
+import re
 import tempfile
 from pathlib import Path
 from textwrap import dedent
 
-from undersort.groups import (
+from funcsort.groups import (
     Group,
     MemberKind,
+    MethodKind,
     Scope,
     compile_matcher,
     default_groups,
-    groups_for_order,
 )
-from undersort.sorter import sort_file
+from funcsort.sorter import sort_file
 
 
-def _sort(source: str, **kwargs) -> str:
+def _sort(source: str, *, groups: list[Group] | None = None, sort_module: bool = True) -> str:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(source)
         temp_path = Path(f.name)
     try:
-        sort_file(temp_path, **kwargs)
+        sort_file(temp_path, groups=groups, sort_module=sort_module)
         return temp_path.read_text()
     finally:
         temp_path.unlink()
 
 
-def _group(name: str, *matchers: str, **kwargs) -> Group:
-    return Group(name, tuple(compile_matcher(m) for m in matchers), **kwargs)
+def _group(
+    name: str,
+    *matchers: str,
+    kinds: frozenset[MemberKind] = frozenset({MemberKind.FUNCTION}),
+    types: frozenset[MethodKind] | None = None,
+    scopes: frozenset[Scope] | None = None,
+    decorators: tuple[re.Pattern[str], ...] | None = None,
+) -> Group:
+    return Group(
+        name,
+        tuple(compile_matcher(m) for m in matchers),
+        kinds=kinds,
+        types=types,
+        scopes=scopes,
+        decorators=decorators,
+    )
 
 
 class TestRegexGroups:
@@ -182,8 +197,30 @@ class TestAsyncAndDecorators:
                 async def a(self):
                     pass
         """)
-        result = _sort(source, groups=groups_for_order(["public", "protected", "private"]), sort_module=False)
+        result = _sort(source, groups=default_groups(), sort_module=False)
         assert result.index("async def a") < result.index("async def _b")
+
+    def test_decorator_group_sorts_properties_first(self) -> None:
+        source = dedent("""
+            class Example:
+                def run(self):
+                    pass
+
+                @property
+                def name(self):
+                    pass
+
+                @cached_property
+                def size(self):
+                    pass
+        """)
+        groups = [
+            _group("properties", ".*", decorators=(compile_matcher("property"), compile_matcher("cached_property"))),
+            _group("rest", ".*"),
+        ]
+        result = _sort(source, groups=groups, sort_module=False)
+        assert result.index("def name") < result.index("def run")
+        assert result.index("def size") < result.index("def run")
 
     def test_cached_property_treated_as_instance(self) -> None:
         source = dedent("""
@@ -197,5 +234,5 @@ class TestAsyncAndDecorators:
                 def public(self):
                     pass
         """)
-        result = _sort(source, groups=groups_for_order(["public", "protected", "private"]), sort_module=True)
+        result = _sort(source, groups=default_groups(), sort_module=True)
         assert result.index("def public") < result.index("def _value")

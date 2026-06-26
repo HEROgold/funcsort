@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from undersort.main import collect_python_files
+from funcsort.main import collect_python_files
 
 
 class TestCollectPythonFiles:

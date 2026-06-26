@@ -1,7 +1,7 @@
-"""Custom confkit data types for undersort.
+"""Custom confkit data types for funcsort.
 
-These subclass confkit's public :class:`~confkit.BaseDataType` so undersort can store
-*native* TOML arrays and array-of-tables (``[[tool.undersort.groups]]``) instead of
+These subclass confkit's public :class:`~confkit.BaseDataType` so funcsort can store
+*native* TOML arrays and array-of-tables (``[[tool.funcsort.groups]]``) instead of
 confkit's default stringified representation.
 
 confkit's TOML parser stores a value natively only when ``str(native) == str(value)``
@@ -42,7 +42,6 @@ class TomlList(BaseDataType[list[Any]]):
         try:
             parsed = ast.literal_eval(value)
         except (ValueError, SyntaxError):
-            # Legacy comma-separated fallback (confkit's historical List format).
             return [item.strip() for item in value.split(",") if item.strip()]
         if isinstance(parsed, (list, tuple)):
             return list(parsed)
@@ -50,7 +49,7 @@ class TomlList(BaseDataType[list[Any]]):
 
 
 class GroupTable(BaseDataType[list[dict[str, Any]]]):
-    """A confkit value holding a list of group tables (``[[tool.undersort.groups]]``)."""
+    """A confkit value holding a list of group tables (``[[tool.funcsort.groups]]``)."""
 
     def __init__(self, default: list[dict[str, Any]] | None = None) -> None:
         """Initialise with a default list of group dicts (empty when omitted)."""

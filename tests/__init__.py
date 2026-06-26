@@ -1,1 +1,1 @@
-"""Test suite for undersort."""
+"""Test suite for funcsort."""

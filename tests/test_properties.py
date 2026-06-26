@@ -8,17 +8,17 @@ import libcst as cst
 from hypothesis import given
 from hypothesis import strategies as st
 
-from undersort.groups import (
+from funcsort.groups import (
     DEFAULT_CREATIONAL_DUNDERS,
+    Group,
     Member,
     MemberKind,
     MethodKind,
     Scope,
     classify,
     default_groups,
-    groups_for_order,
 )
-from undersort.sorter import _sort_block, get_method_visibility
+from funcsort.sorter import _sort_block
 
 _PREFIXES = ["", "_", "__", "__dunder_"]
 _DECORATORS = ["", "@classmethod\n", "@staticmethod\n"]
@@ -64,20 +64,34 @@ def _class_source(draw: st.DrawFn) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _class_body(source: str) -> tuple[cst.ClassDef, cst.IndentedBlock]:
+    module = cst.parse_module(source)
+    class_def = module.body[0]
+    assert isinstance(class_def, cst.ClassDef)
+    assert isinstance(class_def.body, cst.IndentedBlock)
+    return class_def, class_def.body
+
+
+def _function_names(body: cst.IndentedBlock) -> list[str]:
+    return [item.name.value for item in body.body if isinstance(item, cst.FunctionDef)]
+
+
+def _group_name(member: Member, groups: list[Group]) -> str:
+    classification = classify(member, groups)
+    assert classification.group is not None
+    return classification.group.name
+
+
 def _method_names(source: str) -> list[str]:
-    module = cst.parse_module(source)
-    class_def = module.body[0]
-    assert isinstance(class_def, cst.ClassDef)
-    return [item.name.value for item in class_def.body.body if isinstance(item, cst.FunctionDef)]
+    _, body = _class_body(source)
+    return _function_names(body)
 
 
-def _sorted_names(source: str, groups) -> list[str]:  # noqa: ANN001
-    module = cst.parse_module(source)
-    class_def = module.body[0]
-    assert isinstance(class_def, cst.ClassDef)
-    result = _sort_block(list(class_def.body.body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
-    new_class = class_def.with_changes(body=class_def.body.with_changes(body=result.new_body))
-    return [item.name.value for item in new_class.body.body if isinstance(item, cst.FunctionDef)]
+def _sorted_names(source: str, groups: list[Group]) -> list[str]:
+    _, body = _class_body(source)
+    result = _sort_block(list(body.body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
+    new_body = body.with_changes(body=result.new_body)
+    return _function_names(new_body)
 
 
 @given(_class_source())
@@ -93,10 +107,8 @@ def test_sorting_is_idempotent(source: str) -> None:
     groups = default_groups()
     once = _sorted_names(source, groups)
     # Re-emit the once-sorted source and sort again; the order must be stable.
-    module = cst.parse_module(source)
-    class_def = module.body[0]
-    assert isinstance(class_def, cst.ClassDef)
-    first = _sort_block(list(class_def.body.body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
+    _, body = _class_body(source)
+    first = _sort_block(list(body.body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
     second = _sort_block(list(first.new_body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
     assert second.modified is False
     assert [n.name.value for n in second.new_body if isinstance(n, cst.FunctionDef)] == once
@@ -111,7 +123,7 @@ def test_group_order_is_monotonic(source: str) -> None:
 
     def _rank(name: str) -> int:
         member = Member(0, None, MemberKind.FUNCTION, name, MethodKind.INSTANCE, Scope.CLASS)
-        return group_rank[classify(member, groups).group.name]
+        return group_rank[_group_name(member, groups)]
 
     ranks = [_rank(name) for name in ordered]
     # Method-type is a secondary key, but group rank must be non-decreasing overall
@@ -126,14 +138,13 @@ def test_default_matches_legacy_visibility(name: str) -> None:
     result = classify(member, default_groups())
     assert result.group is not None
     assert result.group.name == _legacy_visibility(name)
-    assert get_method_visibility(name) == _legacy_visibility(name)
 
 
 @given(st.lists(_identifiers(), max_size=8))
-def test_legacy_order_is_order_independent_membership(names: list[str]) -> None:
-    """Reordering the legacy order list never changes which group a name belongs to."""
-    canonical = groups_for_order(["creational", "dunder", "public", "protected", "private"])
-    reordered = groups_for_order(["private", "protected", "public", "dunder", "creational"])
+def test_default_membership_is_order_independent(names: list[str]) -> None:
+    """The default groups are mutually exclusive: reordering never changes membership."""
+    canonical = default_groups()
+    reordered = list(reversed(default_groups()))
     for name in names:
         member = Member(0, None, MemberKind.FUNCTION, name, MethodKind.INSTANCE, Scope.CLASS)
-        assert classify(member, canonical).group.name == classify(member, reordered).group.name
+        assert _group_name(member, canonical) == _group_name(member, reordered)

@@ -1,9 +1,9 @@
-# undersort
+# funcsort
 
 A Python tool that automatically sorts class methods and module-level functions into
 configurable, regex-matched groups.
 
-undersort ships with a default configuration that reproduces its classic behaviour —
+funcsort ships with a default configuration that reproduces its classic behaviour —
 sorting class methods by visibility (creational → dunder → public → protected → private)
 and type (instance → class → static) — but the engine underneath is fully generic: you
 define your own ordered **groups**, match member names with **regular expressions**, and
@@ -16,49 +16,42 @@ control sorting at both **class and module** scope.
 - Sort both class methods **and** module-level functions
 - Optionally sort module-level assignments/constants by opting a group into them
 - Per-group filters by member kind, method type and scope
-- Configurable via a dedicated `undersort.toml` or `[tool.undersort]` in `pyproject.toml`
+- Configurable via a dedicated `funcsort.toml` or `[tool.funcsort]` in `pyproject.toml`
 - Pre-commit hook integration, colored output, check mode (CI) and diff mode
 
 ## Installation
 
 ```bash
 # Using uv (recommended)
-uv add undersort
+uv add funcsort
 
 # Using pip
-pip install undersort
+pip install funcsort
 
 # For development
-git clone https://github.com/kivicode/undersort
-cd undersort
+git clone https://github.com/HEROgold/funcsort
+cd funcsort
 uv sync
 ```
 
 ## Configuration
 
-undersort reads configuration from a dedicated `undersort.toml` if present, otherwise
-from the `[tool.undersort]` table of `pyproject.toml`. Both use the same `[tool.undersort]`
+funcsort reads configuration from a dedicated `funcsort.toml` if present, otherwise
+from the `[tool.funcsort]` table of `pyproject.toml`. Both use the same `[tool.funcsort]`
 section and keys.
 
-### Simple configuration (classic ordering)
+### Defaults and scalar settings
 
-For the classic visibility-based ordering, just set `order` (and optionally
-`method_type_order`):
+With **no configuration**, funcsort uses its built-in default groups (creational →
+dunder → public → protected → private, each split by instance → class → static). To
+customise the ordering you define your own groups (below); the scalar settings tune the
+rest:
 
 ```toml
-[tool.undersort]
-# Visibility ordering (primary sort)
-# Options: "creational", "dunder", "public", "protected", "private"
-# Default: ["creational", "dunder", "public", "protected", "private"]
-order = ["creational", "dunder", "public", "protected", "private"]
-
+[tool.funcsort]
 # Method type ordering within each group (secondary sort, optional)
 # Options: "instance", "class", "static"   Default: ["instance", "class", "static"]
 method_type_order = ["instance", "class", "static"]
-
-# Override which dunders count as "creational" (optional)
-# Default: ["__new__", "__init__", "__init_subclass__", "__post_init__", "__set_name__"]
-# creational_dunders = ["__new__", "__init__", "__enter__"]
 
 # Sort module-level functions too (default: true)
 sort_module = true
@@ -69,34 +62,34 @@ sort_module = true
 
 ### Custom groups (full control)
 
-For full control, define an ordered list of `[[tool.undersort.groups]]`. This **replaces**
+For full control, define an ordered list of `[[tool.funcsort.groups]]`. This **replaces**
 the built-in groups entirely. Each group matches member names by regex (first-match-wins
 down the list); the list order is the output order.
 
 ```toml
-[tool.undersort]
+[tool.funcsort]
 method_type_order = ["instance", "class", "static"]
 
 # Sort module-level UPPER_CASE constants to the very top.
-[[tool.undersort.groups]]
+[[tool.funcsort.groups]]
 name = "constants"
 match = "^[A-Z][A-Z0-9_]*$"
 kind = ["assignment"]   # opt this group into assignments
 scope = "module"        # only at module scope
 
 # Group pytest-style fixtures next, in classes only.
-[[tool.undersort.groups]]
+[[tool.funcsort.groups]]
 name = "fixtures"
 match = "^(setup|teardown)"
 scope = "class"
 
 # Then magic methods.
-[[tool.undersort.groups]]
+[[tool.funcsort.groups]]
 name = "dunder"
 match = "^__.+__$"
 
 # Catch-all so nothing is ever "unmatched".
-[[tool.undersort.groups]]
+[[tool.funcsort.groups]]
 name = "everything_else"
 match = ".*"
 ```
@@ -110,24 +103,23 @@ Each group table accepts:
   `"assignment"` for constants/assignments to be sorted; otherwise they stay anchored.
 - `type` (optional) — restrict to `"instance"`, `"class"` and/or `"static"`.
 - `scope` (optional) — restrict to `"class"` and/or `"module"`.
+- `decorator` (optional) — a regex/exact string or list; the member must carry a decorator
+  whose dotted name (calls stripped, e.g. `app.route` from `@app.route("/x")`) matches one.
 
 > **Unmatched members**: with custom groups, a member that matches no group is moved to the
 > end of its block (preserving relative order) and reported with a warning. Add a `".*"`
 > catch-all group to collect them where you want.
 
-### Method Visibility Rules
+### Default group rules
 
-- **Creational methods**: Lifecycle dunders that construct/initialize an object or class
-  (`__new__`, `__init__`, `__init_subclass__`, `__post_init__`, `__set_name__` by default;
-  configurable via `creational_dunders`)
-- **Dunder methods**: Any other magic method (e.g., `__str__`, `__repr__`, `__eq__`, `__get__`)
-- **Public methods**: No underscore prefix (e.g., `def method()`)
-- **Protected methods**: Single underscore prefix (e.g., `def _method()`)
-- **Private methods**: Double underscore prefix, not magic (e.g., `def __method()`)
+The built-in default groups classify member names as:
 
-> **Backward compatibility**: If `order` omits `"creational"` and `"dunder"` (e.g. you keep
-> `order = ["public", "protected", "private"]`), magic methods are treated as `public` — the
-> pre-existing behavior — so they are never dropped.
+- **Creational**: Lifecycle dunders (`__new__`, `__init__`, `__init_subclass__`,
+  `__post_init__`, `__set_name__`); to change this set, define your own `creational` group.
+- **Dunder**: Any other magic method (e.g., `__str__`, `__repr__`, `__eq__`, `__get__`)
+- **Public**: No underscore prefix (e.g., `def method()`)
+- **Protected**: Single underscore prefix (e.g., `def _method()`)
+- **Private**: Double underscore prefix, not magic (e.g., `def __method()`)
 
 ### Method Type Rules
 
@@ -217,45 +209,45 @@ class Example:
 
 ```bash
 # Sort a single file
-undersort example.py
+funcsort example.py
 
 # Sort multiple files
-undersort file1.py file2.py file3.py
+funcsort file1.py file2.py file3.py
 
 # Sort all Python files in a directory (recursive by default)
-undersort src/
+funcsort src/
 
 # Sort all Python files in current directory and subdirectories
-undersort .
+funcsort .
 
 # Non-recursive directory sorting (only files in the directory, not subdirectories)
-undersort src/ --no-recursive
+funcsort src/ --no-recursive
 
 # Wildcards work too (expanded by shell)
-undersort *.py
-undersort src/**/*.py
+funcsort *.py
+funcsort src/**/*.py
 
 # Check if files need sorting (useful for CI)
-undersort --check example.py
-undersort --check src/
+funcsort --check example.py
+funcsort --check src/
 
 # Show diff of changes
-undersort --diff example.py
+funcsort --diff example.py
 
 # Sort class methods only, leaving module-level functions untouched
-undersort --no-sort-module src/
+funcsort --no-sort-module src/
 
 # Combine flags
-undersort --check --diff src/
+funcsort --check --diff src/
 
 # Exclude specific files or directories
-undersort --exclude "tests/*" --exclude "migrations/*.py" src/
+funcsort --exclude "tests/*" --exclude "migrations/*.py" src/
 
 # Multiple exclude patterns (can be combined with config file patterns)
-undersort --exclude "test_*.py" --exclude "*/legacy/*" .
+funcsort --exclude "test_*.py" --exclude "*/legacy/*" .
 ```
 
-**Note**: By default, undersort excludes all dot-prefixed directories (e.g., `.venv`, `.git`, `.pytest_cache`) and common build directories (`venv`, `__pycache__`, `node_modules`) when scanning directories recursively. You can add custom exclusions via CLI flags or the config file.
+**Note**: By default, funcsort excludes all dot-prefixed directories (e.g., `.venv`, `.git`, `.pytest_cache`) and common build directories (`venv`, `__pycache__`, `node_modules`) when scanning directories recursively. You can add custom exclusions via CLI flags or the config file.
 
 ### Pre-commit Integration
 
@@ -265,12 +257,12 @@ Add to your `.pre-commit-config.yaml`:
 repos:
   - repo: local
     hooks:
-      - id: undersort
-        name: undersort
-        entry: undersort
+      - id: funcsort
+        name: funcsort
+        entry: funcsort
         language: python
         types: [python]
-        additional_dependencies: ["undersort"]
+        additional_dependencies: ["funcsort"]
 ```
 
 Then install the hook:
@@ -352,13 +344,13 @@ The methods are now organized by:
 uv sync
 
 # Run on example file
-uv run undersort example.py
+uv run funcsort example.py
 
 # Test with check mode
-uv run undersort --check example.py
+uv run funcsort --check example.py
 
 # View diff
-uv run undersort --diff example.py
+uv run funcsort --diff example.py
 ```
 
 ## License

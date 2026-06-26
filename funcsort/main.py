@@ -1,4 +1,4 @@
-"""Main entry point for undersort CLI."""
+"""Main entry point for funcsort CLI."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from pathlib import Path
 
 from herogold.argparse import Actions, Argument, parser
 
-from undersort import logger
-from undersort.config import Settings, load_settings
-from undersort.sorter import sort_file
+from funcsort import logger
+from funcsort.config import Settings, load_settings
+from funcsort.sorter import sort_file
 
 _EXCLUDE_DIRS = {"venv", "__pycache__", "node_modules"}
 
@@ -22,8 +22,17 @@ class _Cli:
     diff = Argument("diff", action=Actions.STORE_BOOL, default=False, help="Show a diff of the changes")
     recursive = Argument("recursive", action=Actions.STORE_BOOL, default=True, help="Recurse into directories")
     sort_module = Argument("sort-module", action=Actions.STORE_BOOL, default=True, help="Sort module-level functions")
-    exclude = Argument("exclude", action=Actions.APPEND, default=[], help="Exclude files/dirs matching a glob pattern")
+    exclude = Argument[list[str]](
+        "exclude",
+        action=Actions.APPEND,
+        default=[],
+        help="Exclude files/dirs matching a glob pattern",
+    )
 
+
+# Defining ``_Cli`` registers the Argument descriptors on the shared parser via
+# ``__set_name__``; the class itself is not needed afterwards.
+del _Cli
 
 # STORE_BOOL registers a --flag/--no-flag pair without an explicit default, so pin the
 # real defaults here. sort_module defaults to None so the config value wins unless the
@@ -87,7 +96,7 @@ def _resolve_exclude(settings: Settings, cli_exclude: list[str] | None) -> list[
 
 
 def main() -> int:
-    """Run the undersort CLI."""
+    """Run the funcsort CLI."""
     args = parser.parse_args()
     settings = load_settings()
 

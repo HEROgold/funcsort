@@ -4,14 +4,25 @@ import tempfile
 from pathlib import Path
 from textwrap import dedent
 
-from undersort.sorter import sort_file
+from funcsort.groups import default_groups
+from funcsort.sorter import SortResult, sort_file
+
+
+def _sort(source: str) -> tuple[SortResult, str]:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(source)
+        temp_path = Path(f.name)
+    try:
+        result = sort_file(temp_path, groups=default_groups(), sort_module=False)
+        return result, temp_path.read_text()
+    finally:
+        temp_path.unlink()
 
 
 class TestNosortDirectives:
     """Tests for # nosort comment functionality."""
 
     def test_file_level_nosort(self) -> None:
-        """Test that file-level nosort prevents all sorting."""
         source = dedent("""\
             # nosort: file
             class Example:
@@ -21,25 +32,11 @@ class TestNosortDirectives:
                 def public(self):
                     pass
         """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(source)
-            temp_path = Path(f.name)
-
-        try:
-            order = ["public", "protected", "private"]
-            was_modified = sort_file(temp_path, order)
-
-            assert was_modified.modified is False
-
-            with open(temp_path) as f:
-                result = f.read()
-
-            assert result == source
-        finally:
-            temp_path.unlink()
+        result, text = _sort(source)
+        assert result.modified is False
+        assert text == source
 
     def test_class_level_nosort(self) -> None:
-        """Test that class-level nosort prevents sorting that class."""
         source = dedent("""\
             class Example:  # nosort
                 def _protected(self):
@@ -48,25 +45,11 @@ class TestNosortDirectives:
                 def public(self):
                     pass
         """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(source)
-            temp_path = Path(f.name)
-
-        try:
-            order = ["public", "protected", "private"]
-            was_modified = sort_file(temp_path, order)
-
-            assert was_modified.modified is False
-
-            with open(temp_path) as f:
-                result = f.read()
-
-            assert result == source
-        finally:
-            temp_path.unlink()
+        result, text = _sort(source)
+        assert result.modified is False
+        assert text == source
 
     def test_method_level_nosort(self) -> None:
-        """Test that method-level nosort keeps that method in place."""
         source = dedent("""\
             class Example:
                 def public_a(self):
@@ -78,29 +61,11 @@ class TestNosortDirectives:
                 def public_b(self):
                     pass
         """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(source)
-            temp_path = Path(f.name)
-
-        try:
-            order = ["public", "protected", "private"]
-            was_modified = sort_file(temp_path, order)
-
-            assert was_modified.modified is False
-
-            with open(temp_path) as f:
-                result = f.read()
-
-            protected_idx = result.find("def _protected_x")
-            public_a_idx = result.find("def public_a")
-            public_b_idx = result.find("def public_b")
-
-            assert public_a_idx < protected_idx < public_b_idx
-        finally:
-            temp_path.unlink()
+        result, text = _sort(source)
+        assert result.modified is False
+        assert text.find("def public_a") < text.find("def _protected_x") < text.find("def public_b")
 
     def test_multiple_nosort_methods(self) -> None:
-        """Test multiple methods with nosort."""
         source = dedent("""\
             class Example:
                 def public_a(self):
@@ -115,25 +80,11 @@ class TestNosortDirectives:
                 def _protected_y(self):
                     pass
         """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(source)
-            temp_path = Path(f.name)
-
-        try:
-            order = ["public", "protected", "private"]
-            was_modified = sort_file(temp_path, order)
-
-            assert was_modified.modified is False
-
-            with open(temp_path) as f:
-                result = f.read()
-
-            assert result == source
-        finally:
-            temp_path.unlink()
+        result, text = _sort(source)
+        assert result.modified is False
+        assert text == source
 
     def test_nosort_case_insensitive(self) -> None:
-        """Test that NOSORT and NoSort also work."""
         source = dedent("""\
             class Example:  # NOSORT
                 def _protected(self):
@@ -142,20 +93,10 @@ class TestNosortDirectives:
                 def public(self):
                     pass
         """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(source)
-            temp_path = Path(f.name)
-
-        try:
-            order = ["public", "protected", "private"]
-            was_modified = sort_file(temp_path, order)
-
-            assert was_modified.modified is False
-        finally:
-            temp_path.unlink()
+        result, _ = _sort(source)
+        assert result.modified is False
 
     def test_nosort_with_other_classes(self) -> None:
-        """Test that nosort on one class doesn't affect others."""
         source = dedent("""\
             class First:  # nosort
                 def _protected(self):
@@ -171,27 +112,9 @@ class TestNosortDirectives:
                 def public(self):
                     pass
         """)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-            f.write(source)
-            temp_path = Path(f.name)
-
-        try:
-            order = ["public", "protected", "private"]
-            was_modified = sort_file(temp_path, order)
-
-            assert was_modified.modified is True
-
-            with open(temp_path) as f:
-                result = f.read()
-
-            first_protected_idx = result.find("class First")
-            first_protected_method_idx = result.find("def _protected", first_protected_idx)
-            first_public_idx = result.find("def public", first_protected_idx)
-            second_class_idx = result.find("class Second")
-            second_public_idx = result.find("def public", second_class_idx)
-            second_protected_idx = result.find("def _protected", second_class_idx)
-
-            assert first_protected_method_idx < first_public_idx
-            assert second_public_idx < second_protected_idx
-        finally:
-            temp_path.unlink()
+        result, text = _sort(source)
+        assert result.modified is True
+        first_start = text.find("class First")
+        second_start = text.find("class Second")
+        assert text.find("def _protected", first_start) < text.find("def public", first_start)
+        assert text.find("def public", second_start) < text.find("def _protected", second_start)

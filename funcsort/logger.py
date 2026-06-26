@@ -1,4 +1,4 @@
-"""Logging configuration for undersort."""
+"""Logging configuration for funcsort."""
 
 from rich.console import Console
 from rich.syntax import Syntax
