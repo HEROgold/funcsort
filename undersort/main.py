@@ -1,166 +1,149 @@
 """Main entry point for undersort CLI."""
 
-import argparse
+from __future__ import annotations
+
 import fnmatch
 import sys
 from pathlib import Path
 
+from herogold.argparse import Actions, Argument, parser
+
 from undersort import logger
-from undersort.config import load_config
+from undersort.config import Settings, load_settings
 from undersort.sorter import sort_file
+
+_EXCLUDE_DIRS = {"venv", "__pycache__", "node_modules"}
+
+
+class _Cli:
+    """Declarative CLI flags; defining them registers the options on the shared parser."""
+
+    check = Argument("check", action=Actions.STORE_BOOL, default=False, help="Check without modifying files")
+    diff = Argument("diff", action=Actions.STORE_BOOL, default=False, help="Show a diff of the changes")
+    recursive = Argument("recursive", action=Actions.STORE_BOOL, default=True, help="Recurse into directories")
+    sort_module = Argument("sort-module", action=Actions.STORE_BOOL, default=True, help="Sort module-level functions")
+    exclude = Argument("exclude", action=Actions.APPEND, default=[], help="Exclude files/dirs matching a glob pattern")
+
+
+# STORE_BOOL registers a --flag/--no-flag pair without an explicit default, so pin the
+# real defaults here. sort_module defaults to None so the config value wins unless the
+# user passes the flag explicitly.
+parser.description = "Sort class methods and module-level functions into configurable groups"
+parser.set_defaults(check=False, diff=False, recursive=True, sort_module=None)
+parser.add_argument("paths", nargs="+", type=Path, help="Python files or directories to sort")
 
 
 def collect_python_files(path: Path, recursive: bool = True, exclude_patterns: list[str] | None = None) -> list[Path]:
-    """Collect Python files from a path (file or directory).
+    """Collect Python files from a file or directory path.
 
     Args:
-        path: File or directory path
-        recursive: If True, recursively search directories
-        exclude_patterns: List of glob patterns to exclude (e.g., ["tests/*", "migrations/*.py"])
+        path: File or directory to search.
+        recursive: Whether to descend into subdirectories.
+        exclude_patterns: Glob patterns to skip.
 
     Returns:
-        List of Python file paths
+        Sorted list of matching ``.py`` file paths.
     """
-    exclude_dirs = {
-        "venv",
-        "__pycache__",
-        "node_modules",
-    }
-
     if path.is_file():
         return [path] if path.suffix == ".py" else []
 
-    if path.is_dir():
-        pattern = "**/*.py" if recursive else "*.py"
-        all_files = path.glob(pattern)
-        filtered_files = [
-            f
-            for f in all_files
-            if not any(part in exclude_dirs or (part.startswith(".") and part != ".") for part in f.parts)
-        ]
+    if not path.is_dir():
+        return []
 
-        if exclude_patterns:
-            filtered_files = [f for f in filtered_files if not _matches_any_pattern(f, exclude_patterns)]
-
-        return sorted(filtered_files)
-
-    return []
+    pattern = "**/*.py" if recursive else "*.py"
+    files = [
+        f
+        for f in path.glob(pattern)
+        if not any(part in _EXCLUDE_DIRS or (part.startswith(".") and part != ".") for part in f.parts)
+    ]
+    if exclude_patterns:
+        files = [f for f in files if not _matches_any_pattern(f, exclude_patterns)]
+    return sorted(files)
 
 
 def _matches_any_pattern(file_path: Path, patterns: list[str]) -> bool:
-    """Check if a file matches any of the exclusion patterns.
-
-    Args:
-        file_path: Path to check
-        patterns: List of glob patterns
-
-    Returns:
-        True if file matches any pattern, False otherwise
-    """
+    """Return whether ``file_path`` matches any of the glob ``patterns``."""
     path_str = str(file_path)
-
     for pattern in patterns:
         if fnmatch.fnmatch(path_str, pattern):
             return True
-
         if "/" not in pattern:
             if fnmatch.fnmatch(file_path.name, pattern):
                 return True
             continue
-
         if fnmatch.fnmatch(path_str, f"*/{pattern}"):
             return True
-
         for part_idx in range(len(file_path.parts)):
             subpath = str(Path(*file_path.parts[part_idx:]))
             if fnmatch.fnmatch(subpath, pattern):
                 return True
-
     return False
 
 
-def main() -> int:  # noqa: PLR0912
-    """Main entry point for undersort."""
-    parser = argparse.ArgumentParser(description="Sort class methods by visibility (public, protected, private)")
-    parser.add_argument(
-        "paths",
-        nargs="+",
-        type=Path,
-        help="Python files or directories to sort",
-    )
-    parser.add_argument(
-        "--check",
-        action="store_true",
-        help="Check if files need sorting without modifying them",
-    )
-    parser.add_argument(
-        "--diff",
-        action="store_true",
-        help="Show diff of changes",
-    )
-    parser.add_argument(
-        "--no-recursive",
-        dest="recursive",
-        action="store_false",
-        default=True,
-        help="Don't recursively search directories",
-    )
-    parser.add_argument(
-        "--exclude",
-        action="append",
-        help="Exclude files/directories matching pattern (can be used multiple times)",
-    )
+def _resolve_exclude(settings: Settings, cli_exclude: list[str] | None) -> list[str] | None:
+    """Merge config and CLI exclusion patterns."""
+    patterns = [*settings.exclude, *(cli_exclude or [])]
+    return patterns or None
 
+
+def main() -> int:
+    """Run the undersort CLI."""
     args = parser.parse_args()
+    settings = load_settings()
 
-    config = load_config()
-
-    exclude_patterns: list[str] = []
-    config_exclude = config.get("exclude")
-    if config_exclude:
-        exclude_patterns.extend(config_exclude)
-    if args.exclude:
-        exclude_patterns.extend(args.exclude)
+    sort_module = settings.sort_module if args.sort_module is None else args.sort_module
+    exclude_patterns = _resolve_exclude(settings, args.exclude)
 
     all_files: list[Path] = []
     for path in args.paths:
         if not path.exists():
             logger.error(f"Path not found: {path}")
             continue
-
-        python_files = collect_python_files(path, args.recursive, exclude_patterns or None)
-        all_files.extend(python_files)
+        all_files.extend(collect_python_files(path, args.recursive, exclude_patterns))
 
     if not all_files:
         logger.warning("No Python files found")
         return 0
 
     modified_files: list[Path] = []
+    unmatched_names: set[str] = set()
     errors = False
-
     for file_path in all_files:
         try:
-            was_modified = sort_file(
+            result = sort_file(
                 file_path,
-                config["order"],
-                method_type_order=config.get("method_type_order"),
+                groups=settings.groups,
+                method_type_order=settings.method_type_order,
+                sort_module=sort_module,
                 check_only=args.check,
                 show_diff=args.diff,
-                creational_dunders=config.get("creational_dunders"),
             )
-
-            if not was_modified:
-                continue
-
-            modified_files.append(file_path)
-            if not args.check:
-                logger.success(f"Sorted {file_path}")
-
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - report and continue across files
             logger.error(f"Error processing {file_path}: {e}")
             errors = True
+            continue
 
-    if args.check and modified_files:
+        unmatched_names.update(member.name for member in result.unmatched)
+        if not result.modified:
+            continue
+        modified_files.append(file_path)
+        if not args.check:
+            logger.success(f"Sorted {file_path}")
+
+    _report_unmatched(unmatched_names)
+    return _report(modified_files, errors, check_only=args.check)
+
+
+def _report_unmatched(unmatched_names: set[str]) -> None:
+    """Warn about members that matched no group and were moved to the end."""
+    if unmatched_names:
+        names = ", ".join(sorted(unmatched_names))
+        logger.warning(f"Members matched no group and were moved to the end: {names}. Configure a group for them.")
+
+
+def _report(modified_files: list[Path], errors: bool, *, check_only: bool) -> int:
+    """Emit a summary and return the process exit code."""
+    if check_only and modified_files:
         logger.warning(f"Files that need sorting: {len(modified_files)}")
         for f in modified_files:
             logger.console.print(f"  - {f}")
@@ -168,7 +151,7 @@ def main() -> int:  # noqa: PLR0912
 
     if not modified_files and not errors:
         logger.info("All files are already sorted correctly")
-    elif modified_files and not args.check:
+    elif modified_files and not check_only:
         logger.success(f"Sorted {len(modified_files)} file(s) successfully")
 
     return 1 if errors else 0

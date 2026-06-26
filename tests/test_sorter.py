@@ -78,7 +78,7 @@ class TestMethodSorting:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -112,7 +112,7 @@ class TestMethodSorting:
             order = ["private", "protected", "public"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -146,7 +146,7 @@ class TestMethodSorting:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is False
+            assert was_modified.modified is False
 
             with open(temp_path) as f:
                 result = f.read()
@@ -178,7 +178,7 @@ class TestMethodSorting:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -224,7 +224,7 @@ class TestMethodSorting:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -247,7 +247,7 @@ class TestMethodSorting:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is False
+            assert was_modified.modified is False
 
             with open(temp_path) as f:
                 result = f.read()
@@ -281,7 +281,7 @@ class TestMethodSorting:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -321,7 +321,7 @@ class TestMethodSorting:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order, check_only=True)
 
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -369,7 +369,7 @@ class TestMethodSorting:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -406,7 +406,7 @@ class TestDunderSorting:
 
         try:
             was_modified = sort_file(temp_path, self.DEFAULT_ORDER)
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -436,7 +436,7 @@ class TestDunderSorting:
 
         try:
             was_modified = sort_file(temp_path, self.DEFAULT_ORDER)
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -467,7 +467,7 @@ class TestDunderSorting:
         try:
             order = ["dunder", "creational", "public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -536,7 +536,7 @@ class TestDunderSorting:
             order = ["creational", "dunder", "public", "protected", "private"]
             # __enter__ becomes creational, __str__ remains a generic dunder.
             was_modified = sort_file(temp_path, order, creational_dunders=["__enter__"])
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -575,7 +575,7 @@ class TestMethodTypeSorting:
             method_type_order = ["instance", "class", "static"]
             was_modified = sort_file(temp_path, order, method_type_order)
 
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -612,7 +612,7 @@ class TestMethodTypeSorting:
             method_type_order = ["class", "static", "instance"]
             was_modified = sort_file(temp_path, order, method_type_order)
 
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()
@@ -656,7 +656,7 @@ class TestMethodTypeSorting:
             method_type_order = ["instance", "class", "static"]
             was_modified = sort_file(temp_path, order, method_type_order)
 
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()

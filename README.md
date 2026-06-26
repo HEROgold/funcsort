@@ -1,16 +1,23 @@
 # undersort
 
-A Python tool that automatically sorts class methods by visibility (public, protected, private) and type (class, static, instance).
+A Python tool that automatically sorts class methods and module-level functions into
+configurable, regex-matched groups.
+
+undersort ships with a default configuration that reproduces its classic behaviour —
+sorting class methods by visibility (creational → dunder → public → protected → private)
+and type (instance → class → static) — but the engine underneath is fully generic: you
+define your own ordered **groups**, match member names with **regular expressions**, and
+control sorting at both **class and module** scope.
 
 ## Features
 
-- Automatically reorders class methods based on visibility and method type
-- Two-level sorting: primary by visibility, secondary by method type
-- Fully configurable ordering via `pyproject.toml`
-- Pre-commit hook integration
-- Colored output for better readability
-- Check mode for CI/CD validation
-- Diff mode to preview changes
+- Generic, configuration-driven engine with a behaviour-preserving default
+- Define your own groups and ordering; match member names with regex
+- Sort both class methods **and** module-level functions
+- Optionally sort module-level assignments/constants by opting a group into them
+- Per-group filters by member kind, method type and scope
+- Configurable via a dedicated `undersort.toml` or `[tool.undersort]` in `pyproject.toml`
+- Pre-commit hook integration, colored output, check mode (CI) and diff mode
 
 ## Installation
 
@@ -29,28 +36,84 @@ uv sync
 
 ## Configuration
 
-Configure the method ordering in your `pyproject.toml`:
+undersort reads configuration from a dedicated `undersort.toml` if present, otherwise
+from the `[tool.undersort]` table of `pyproject.toml`. Both use the same `[tool.undersort]`
+section and keys.
+
+### Simple configuration (classic ordering)
+
+For the classic visibility-based ordering, just set `order` (and optionally
+`method_type_order`):
 
 ```toml
 [tool.undersort]
-# Method visibility ordering (primary sort)
+# Visibility ordering (primary sort)
 # Options: "creational", "dunder", "public", "protected", "private"
 # Default: ["creational", "dunder", "public", "protected", "private"]
 order = ["creational", "dunder", "public", "protected", "private"]
 
-# Method type ordering within each visibility level (secondary sort, optional)
-# Options: "class" (classmethod), "static" (staticmethod), "instance" (regular methods)
-# Default: ["instance", "class", "static"]
+# Method type ordering within each group (secondary sort, optional)
+# Options: "instance", "class", "static"   Default: ["instance", "class", "static"]
 method_type_order = ["instance", "class", "static"]
 
-# Override which dunders are treated as "creational" (optional)
+# Override which dunders count as "creational" (optional)
 # Default: ["__new__", "__init__", "__init_subclass__", "__post_init__", "__set_name__"]
-# creational_dunders = ["__new__", "__init__", "__init_subclass__", "__post_init__", "__set_name__"]
+# creational_dunders = ["__new__", "__init__", "__enter__"]
 
-# Exclude files/directories matching these patterns (optional)
-# Patterns support glob syntax (e.g., "tests/*", "migrations/*.py", "**/generated/*")
+# Sort module-level functions too (default: true)
+sort_module = true
+
+# Exclude files/directories matching these glob patterns (optional)
 # exclude = ["tests/*", "migrations/*.py"]
 ```
+
+### Custom groups (full control)
+
+For full control, define an ordered list of `[[tool.undersort.groups]]`. This **replaces**
+the built-in groups entirely. Each group matches member names by regex (first-match-wins
+down the list); the list order is the output order.
+
+```toml
+[tool.undersort]
+method_type_order = ["instance", "class", "static"]
+
+# Sort module-level UPPER_CASE constants to the very top.
+[[tool.undersort.groups]]
+name = "constants"
+match = "^[A-Z][A-Z0-9_]*$"
+kind = ["assignment"]   # opt this group into assignments
+scope = "module"        # only at module scope
+
+# Group pytest-style fixtures next, in classes only.
+[[tool.undersort.groups]]
+name = "fixtures"
+match = "^(setup|teardown)"
+scope = "class"
+
+# Then magic methods.
+[[tool.undersort.groups]]
+name = "dunder"
+match = "^__.+__$"
+
+# Catch-all so nothing is ever "unmatched".
+[[tool.undersort.groups]]
+name = "everything_else"
+match = ".*"
+```
+
+Each group table accepts:
+
+- `name` (required) — identifier used in diagnostics.
+- `match` (required) — a regex string or a list of strings (matched if **any** matches).
+  A bare identifier (e.g. `"__init__"`) is treated as an exact-name match.
+- `kind` (optional) — `"function"` (default) and/or `"assignment"`. A group must opt into
+  `"assignment"` for constants/assignments to be sorted; otherwise they stay anchored.
+- `type` (optional) — restrict to `"instance"`, `"class"` and/or `"static"`.
+- `scope` (optional) — restrict to `"class"` and/or `"module"`.
+
+> **Unmatched members**: with custom groups, a member that matches no group is moved to the
+> end of its block (preserving relative order) and reported with a warning. Add a `".*"`
+> catch-all group to collect them where you want.
 
 ### Method Visibility Rules
 
@@ -178,6 +241,9 @@ undersort --check src/
 
 # Show diff of changes
 undersort --diff example.py
+
+# Sort class methods only, leaving module-level functions untouched
+undersort --no-sort-module src/
 
 # Combine flags
 undersort --check --diff src/

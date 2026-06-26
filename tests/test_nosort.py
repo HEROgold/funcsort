@@ -29,7 +29,7 @@ class TestNosortDirectives:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is False
+            assert was_modified.modified is False
 
             with open(temp_path) as f:
                 result = f.read()
@@ -56,7 +56,7 @@ class TestNosortDirectives:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is False
+            assert was_modified.modified is False
 
             with open(temp_path) as f:
                 result = f.read()
@@ -86,7 +86,7 @@ class TestNosortDirectives:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is False
+            assert was_modified.modified is False
 
             with open(temp_path) as f:
                 result = f.read()
@@ -123,7 +123,7 @@ class TestNosortDirectives:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is False
+            assert was_modified.modified is False
 
             with open(temp_path) as f:
                 result = f.read()
@@ -150,7 +150,7 @@ class TestNosortDirectives:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is False
+            assert was_modified.modified is False
         finally:
             temp_path.unlink()
 
@@ -179,7 +179,7 @@ class TestNosortDirectives:
             order = ["public", "protected", "private"]
             was_modified = sort_file(temp_path, order)
 
-            assert was_modified is True
+            assert was_modified.modified is True
 
             with open(temp_path) as f:
                 result = f.read()

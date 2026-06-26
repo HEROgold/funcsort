@@ -1,56 +1,78 @@
-"""Core sorting logic for class methods."""
+"""Core sorting logic for class methods and module-level functions.
+
+The transformer is a thin libcst adapter over the pure model in :mod:`undersort.groups`.
+A single shared helper (:func:`_sort_block`) reorders the members of any block — a class
+body or the module body — so class and module scope share one implementation.
+"""
+
+from __future__ import annotations
 
 import difflib
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, cast
 
 import libcst as cst
 
 from undersort import logger
-
-# Curated set of object/class lifecycle dunders treated as the "creational" group.
-# Every other magic method (``__x__``) falls into the generic "dunder" group.
-DEFAULT_CREATIONAL_DUNDERS: tuple[str, ...] = (
-    "__new__",
-    "__init__",
-    "__init_subclass__",
-    "__post_init__",
-    "__set_name__",
+from undersort.groups import (
+    DEFAULT_CREATIONAL_DUNDERS,
+    Group,
+    Member,
+    MemberKind,
+    MethodKind,
+    Scope,
+    classify,
+    default_groups,
+    groups_for_order,
 )
 
+# Re-exported for backward compatibility with callers that imported it from here.
+__all__ = ["DEFAULT_CREATIONAL_DUNDERS", "BlockSortResult", "MethodSorter", "SortResult", "sort_file"]
 
-def has_nosort_comment(node: cst.FunctionDef | cst.ClassDef) -> bool:
-    """Check if a node has a nosort comment.
 
-    Args:
-        node: The node to check
+@dataclass(frozen=True)
+class BlockSortResult:
+    """Outcome of sorting a single block (class or module body)."""
 
-    Returns:
-        True if the node has a # nosort comment
+    new_body: list[cst.BaseStatement]
+    modified: bool
+    unmatched: tuple[Member, ...]
+
+
+@dataclass(frozen=True)
+class SortResult:
+    """Outcome of sorting a whole file."""
+
+    path: Path
+    modified: bool
+    unmatched: tuple[Member, ...] = ()
+
+
+def has_nosort_comment(node: cst.CSTNode) -> bool:
+    """Return whether ``node`` carries a ``# nosort`` directive.
+
+    Looks at leading comment lines, a trailing comment on the same line (assignments),
+    and the trailing comment of a block header (functions/classes). Case-insensitive.
     """
-    if hasattr(node, "leading_lines"):
-        for line in node.leading_lines:
-            if isinstance(line, cst.EmptyLine) and line.comment and "nosort" in line.comment.value.lower():
-                return True
+    for line in getattr(node, "leading_lines", []):
+        if isinstance(line, cst.EmptyLine) and line.comment and "nosort" in line.comment.value.lower():
+            return True
 
+    trailing = getattr(node, "trailing_whitespace", None)
+    if isinstance(trailing, cst.TrailingWhitespace) and trailing.comment and "nosort" in trailing.comment.value.lower():
+        return True
+
+    body = getattr(node, "body", None)
+    header = getattr(body, "header", None)
     return bool(
-        hasattr(node, "body")
-        and hasattr(node.body, "header")
-        and isinstance(node.body.header, cst.TrailingWhitespace)
-        and node.body.header.comment
-        and "nosort" in node.body.header.comment.value.lower()
+        isinstance(header, cst.TrailingWhitespace) and header.comment and "nosort" in header.comment.value.lower(),
     )
 
 
 def file_has_nosort(module: cst.Module) -> bool:
-    """Check if a file has a file-level nosort directive.
-
-    Args:
-        module: The module to check
-
-    Returns:
-        True if the file has a # nosort: file comment
-    """
+    """Return whether the file has a ``# nosort: file`` directive in its header."""
     for line in module.header:
         if isinstance(line, cst.EmptyLine) and line.comment:
             comment_text = line.comment.value.lower()
@@ -59,230 +81,229 @@ def file_has_nosort(module: cst.Module) -> bool:
     return False
 
 
-def get_method_visibility(
-    method_name: str,
-    creational_dunders: tuple[str, ...] | list[str] | None = None,
-) -> Literal["creational", "dunder", "public", "private", "protected"]:
-    """Determine method visibility based on naming convention.
-
-    Args:
-        method_name: The name of the method
-        creational_dunders: Names treated as the "creational" group. Defaults to
-            ``DEFAULT_CREATIONAL_DUNDERS`` when None.
-
-    Returns:
-        'creational' for lifecycle dunders (e.g. __init__, __new__),
-        'dunder' for any other magic method (__method__),
-        'public' for method (no underscore prefix),
-        'protected' for _method (single underscore),
-        'private' for __method (dunder prefix, not magic method)
-    """
-    if creational_dunders is None:
-        creational_dunders = DEFAULT_CREATIONAL_DUNDERS
-
-    if method_name.startswith("__") and method_name.endswith("__"):
-        if method_name in creational_dunders:
-            return "creational"
-        return "dunder"
-
-    if method_name.startswith("__"):
-        return "private"
-
-    if method_name.startswith("_"):
-        return "protected"
-
-    return "public"
-
-
-def get_method_type(method: cst.FunctionDef) -> str:
-    """Determine method type based on decorators.
-
-    Args:
-        method: The FunctionDef node
-
-    Returns:
-        'class' for @classmethod,
-        'static' for @staticmethod,
-        'instance' for regular instance methods (default)
-    """
+def get_method_type(method: cst.FunctionDef) -> MethodKind:
+    """Determine a function's binding from its decorators."""
     for decorator in method.decorators:
         decorator_name = decorator.decorator
         if isinstance(decorator_name, cst.Name):
             if decorator_name.value == "classmethod":
-                return "class"
+                return MethodKind.CLASS
             if decorator_name.value == "staticmethod":
-                return "static"
-    return "instance"
+                return MethodKind.STATIC
+    return MethodKind.INSTANCE
+
+
+def get_method_visibility(
+    method_name: str,
+    creational_dunders: tuple[str, ...] | list[str] | None = None,
+) -> str:
+    """Return the default group name a method name falls into (compatibility shim)."""
+    dunders = tuple(creational_dunders) if creational_dunders is not None else DEFAULT_CREATIONAL_DUNDERS
+    member = Member(0, None, MemberKind.FUNCTION, method_name, MethodKind.INSTANCE, Scope.CLASS)
+    result = classify(member, default_groups(dunders))
+    return result.group.name if result.group else "public"
+
+
+def _assignment_target_name(line: cst.SimpleStatementLine) -> str | None:
+    """Return the single simple target name of an assignment line, else None."""
+    if len(line.body) != 1:
+        return None
+    statement = line.body[0]
+    if isinstance(statement, cst.Assign):
+        if len(statement.targets) == 1 and isinstance(statement.targets[0].target, cst.Name):
+            return statement.targets[0].target.value
+        return None
+    if isinstance(statement, cst.AnnAssign) and isinstance(statement.target, cst.Name):
+        return statement.target.value
+    return None
+
+
+def _as_member(index: int, node: cst.BaseStatement, scope: Scope) -> Member | None:
+    """Build a :class:`Member` for a sortable statement, or None for structural items."""
+    if isinstance(node, cst.FunctionDef):
+        return Member(index, node, MemberKind.FUNCTION, node.name.value, get_method_type(node), scope)
+    if isinstance(node, cst.SimpleStatementLine):
+        name = _assignment_target_name(node)
+        if name is not None:
+            return Member(index, node, MemberKind.ASSIGNMENT, name, MethodKind.INSTANCE, scope)
+    return None
+
+
+def _effective_method_type_order(method_type_order: list[MethodKind]) -> list[MethodKind]:
+    """Return the order with any missing method types appended (never drop members)."""
+    return [*method_type_order, *(t for t in MethodKind if t not in method_type_order)]
+
+
+# A candidate paired with its position in the candidate sequence (the index space the
+# minimise-movement logic operates on, independent of anchored/structural items).
+_Placed = tuple[int, Member]
+
+
+def _order_bucket(bucket: Iterable[_Placed], current_position: int) -> list[Member]:
+    """Order one bucket, minimising movement relative to the candidate sequence.
+
+    Members that started before the bucket's span (or before what is already placed) go
+    first, members within the span keep their place, and members after the span go last —
+    each subgroup stable by original position.
+    """
+    positions = [position for position, _ in bucket]
+    min_pos, max_pos = min(positions), max(positions)
+
+    moved_down: list[Member] = []
+    in_place: list[Member] = []
+    moved_up: list[Member] = []
+    for position, member in sorted(bucket, key=lambda placed: placed[0]):
+        if position < min_pos or (current_position > 0 and position < current_position):
+            moved_down.append(member)
+        elif position > max_pos:
+            moved_up.append(member)
+        else:
+            in_place.append(member)
+    return moved_down + in_place + moved_up
+
+
+def _sort_block(
+    body: Sequence[cst.BaseStatement],
+    *,
+    scope: Scope,
+    groups: list[Group],
+    method_type_order: list[MethodKind],
+) -> BlockSortResult:
+    """Reorder the sortable members of a block, anchoring everything else in place."""
+    items = list(body)
+    assignments_sortable = any(group.targets_assignments() for group in groups)
+
+    buckets: dict[tuple[str, MethodKind], list[_Placed]] = {}
+    unmatched: list[Member] = []
+    candidate_indices: list[int] = []
+    for index, item in enumerate(items):
+        member = _as_member(index, item, scope)
+        if member is None or has_nosort_comment(item):
+            continue
+        if member.kind is MemberKind.ASSIGNMENT and not assignments_sortable:
+            continue
+        position = len(candidate_indices)
+        candidate_indices.append(index)
+        result = classify(member, groups)
+        if result.group is None:
+            unmatched.append(member)
+        else:
+            buckets.setdefault((result.group.name, member.method_type), []).append((position, member))
+
+    if not candidate_indices:
+        return BlockSortResult(items, modified=False, unmatched=())
+
+    effective_order = _effective_method_type_order(method_type_order)
+    ordered: list[Member] = []
+    current_position = 0
+    for group in groups:
+        for method_type in effective_order:
+            bucket = buckets.get((group.name, method_type))
+            if not bucket:
+                continue
+            ordered.extend(_order_bucket(bucket, current_position))
+            current_position += len(bucket)
+    ordered.extend(unmatched)
+
+    ordered_nodes = [cast("cst.BaseStatement", member.node) for member in ordered]
+    original_nodes = [items[index] for index in candidate_indices]
+    modified = any(new is not old for new, old in zip(ordered_nodes, original_nodes, strict=True))
+
+    fill = iter(ordered_nodes)
+    candidate_set = set(candidate_indices)
+    new_body = [next(fill) if index in candidate_set else item for index, item in enumerate(items)]
+
+    return BlockSortResult(new_body, modified=modified, unmatched=tuple(unmatched))
 
 
 class MethodSorter(cst.CSTTransformer):
-    """Transformer to sort class methods by visibility and type."""
+    """Transformer that sorts class methods and (optionally) module-level functions."""
 
     def __init__(
         self,
-        order: list[str],
-        method_type_order: list[str] | None = None,
-        creational_dunders: tuple[str, ...] | list[str] | None = None,
-    ):
-        """Initialize the transformer.
-
-        Args:
-            order: List specifying the desired order of visibility levels
-                   (e.g., ["creational", "dunder", "public", "protected", "private"])
-            method_type_order: Optional list specifying the order of method types
-                              within each visibility level
-                              (e.g., ["instance", "class", "static"])
-            creational_dunders: Optional override for which dunders count as
-                              "creational". Defaults to ``DEFAULT_CREATIONAL_DUNDERS``.
-        """
-        self.order = order
-        self.method_type_order = method_type_order or ["instance", "class", "static"]
-        self.creational_dunders = creational_dunders if creational_dunders is not None else DEFAULT_CREATIONAL_DUNDERS
+        groups: Iterable[Group],
+        method_type_order: Iterable[MethodKind],
+        sort_module: bool = True,
+    ) -> None:
+        """Initialise the transformer with resolved configuration."""
+        self.groups = groups
+        self.method_type_order = method_type_order
+        self.sort_module = sort_module
         self.modified = False
+        self.unmatched: list[Member] = []
 
-    def leave_ClassDef(  # noqa: PLR0912, PLR0915
-        self,
-        original_node: cst.ClassDef,
-        updated_node: cst.ClassDef,  # noqa: ARG002
-    ) -> cst.ClassDef:
-        """Sort methods within a class definition.
-
-        Args:
-            original_node: Original class definition node
-            updated_node: Updated class definition node
-
-        Returns:
-            ClassDef with sorted methods
-        """
+    def leave_ClassDef(self, original_node: cst.ClassDef, updated_node: cst.ClassDef) -> cst.ClassDef:  # noqa: N802, ARG002
+        """Sort the methods within a class definition."""
         if has_nosort_comment(updated_node):
             return updated_node
-
-        methods = []
-        non_methods = []
-
-        for item in updated_node.body.body:
-            if isinstance(item, cst.FunctionDef):
-                methods.append(item)
-            else:
-                non_methods.append(item)
-
-        if not methods:
+        result = self._apply(list(updated_node.body.body), Scope.CLASS)
+        if result is None:
             return updated_node
+        return updated_node.with_changes(body=updated_node.body.with_changes(body=result))
 
-        sortable_methods = []
-        nosort_methods = []
-
-        for i, method in enumerate(methods):
-            if has_nosort_comment(method):
-                nosort_methods.append((i, method))
-            else:
-                sortable_methods.append((i, method))
-
-        if not sortable_methods:
+    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:  # noqa: N802, ARG002
+        """Sort the top-level functions of a module when enabled."""
+        if not self.sort_module:
             return updated_node
+        result = self._apply(list(updated_node.body), Scope.MODULE)
+        if result is None:
+            return updated_node
+        return updated_node.with_changes(body=result)
 
-        method_groups: dict[str, dict[str, list[tuple[int, cst.FunctionDef]]]] = {
-            "creational": {"class": [], "static": [], "instance": []},
-            "dunder": {"class": [], "static": [], "instance": []},
-            "public": {"class": [], "static": [], "instance": []},
-            "protected": {"class": [], "static": [], "instance": []},
-            "private": {"class": [], "static": [], "instance": []},
-        }
+    def _apply(self, body: list[cst.BaseStatement], scope: Scope) -> list[cst.BaseStatement] | None:
+        """Run the shared sorter on a block; record state; return the new body or None."""
+        result = _sort_block(
+            body,
+            scope=scope,
+            groups=self.groups,
+            method_type_order=self.method_type_order,
+        )
+        self.unmatched.extend(result.unmatched)
+        if not result.modified:
+            return None
+        self.modified = True
+        return result.new_body
 
-        for idx, method in sortable_methods:
-            visibility = get_method_visibility(method.name.value, self.creational_dunders)
-            # Backward compatibility: if the config's `order` doesn't mention the
-            # dunder groups, fold them into "public" so they're never dropped.
-            if visibility in ("creational", "dunder") and visibility not in self.order:
-                visibility = "public"
-            method_type = get_method_type(method)
-            method_groups[visibility][method_type].append((idx, method))
 
-        group_order = []
-        for visibility in self.order:
-            for method_type in self.method_type_order:
-                group_order.append((visibility, method_type))
+def _resolve_groups(
+    groups: Iterable[Group] | None,
+    order: Iterable[str] | None,
+    creational_dunders: Iterable[str] | None,
+) -> list[Group]:
+    """Resolve explicit groups or a legacy ``order`` into a group list."""
+    if groups is not None:
+        return groups
+    dunders = tuple(creational_dunders) if creational_dunders is not None else DEFAULT_CREATIONAL_DUNDERS
+    if order is not None:
+        return groups_for_order(order, dunders)
+    return default_groups(dunders)
 
-        sorted_methods = []
-        current_position = 0
 
-        for visibility, method_type in group_order:
-            group = method_groups[visibility][method_type]
-            if not group:
-                continue
-
-            group_indices = [idx for idx, _ in group]
-            min_original_idx = min(group_indices)
-            max_original_idx = max(group_indices)
-
-            moved_down = []
-            in_place = []
-            moved_up = []
-
-            for idx, method in group:
-                if idx < min_original_idx or (idx < current_position and current_position > 0):
-                    moved_down.append((idx, method))
-                elif idx > max_original_idx:
-                    moved_up.append((idx, method))
-                else:
-                    in_place.append((idx, method))
-
-            moved_down.sort(key=lambda x: x[0])
-            in_place.sort(key=lambda x: x[0])
-            moved_up.sort(key=lambda x: x[0])
-
-            group_sorted = moved_down + in_place + moved_up
-            sorted_methods.extend([method for _, method in group_sorted])
-
-            current_position += len(group)
-
-        all_sorted = sorted_methods[:]
-        for orig_idx, nosort_method in sorted(nosort_methods, key=lambda x: x[0]):
-            all_sorted.insert(orig_idx, nosort_method)
-
-        if methods != all_sorted:
-            self.modified = True
-
-        sorted_methods = all_sorted
-
-        leading_non_methods = []
-        trailing_non_methods = []
-        found_method = False
-        original_items = list(updated_node.body.body)
-
-        for item in original_items:
-            if isinstance(item, cst.FunctionDef):
-                found_method = True
-            elif not found_method:
-                leading_non_methods.append(item)
-            else:
-                trailing_non_methods.append(item)
-
-        new_body = leading_non_methods + sorted_methods + trailing_non_methods
-
-        return updated_node.with_changes(body=updated_node.body.with_changes(body=new_body))
+def _resolve_method_type_order(method_type_order: list[Any] | None) -> list[MethodKind]:
+    """Coerce a method type order (strings or enums) into :class:`MethodKind` values."""
+    if not method_type_order:
+        return [MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.STATIC]
+    return [MethodKind(value) for value in method_type_order]
 
 
 def sort_file(
     file_path: Path,
-    order: list[str],
-    method_type_order: list[str] | None = None,
+    order: Iterable[str] | None = None,
+    method_type_order: Iterable[Any] | None = None,
     check_only: bool = False,
     show_diff: bool = False,
-    creational_dunders: tuple[str, ...] | list[str] | None = None,
-) -> bool:
-    """Sort methods in a Python file.
+    creational_dunders: Iterable[str] | None = None,
+    *,
+    groups: Iterable[Group] | None = None,
+    sort_module: bool = True,
+) -> SortResult:
+    """Sort the methods (and optionally module functions) of a Python file.
 
-    Args:
-        file_path: Path to the Python file
-        order: Method visibility ordering configuration
-        method_type_order: Optional method type ordering within each visibility level
-        check_only: If True, only check if file needs sorting
-        show_diff: If True, show diff of changes
-        creational_dunders: Optional override for which dunders count as "creational"
+    Either pass explicit ``groups`` (new API) or a legacy ``order`` list; when neither is
+    given the built-in default groups are used.
 
     Returns:
-        True if file was modified (or needs modification in check mode)
+        A :class:`SortResult` describing whether the file changed and any unmatched members.
     """
     with open(file_path, encoding="utf-8") as f:
         source_code = f.read()
@@ -293,13 +314,17 @@ def sort_file(
         raise ValueError(f"Syntax error in {file_path}: {e}")
 
     if file_has_nosort(tree):
-        return False
+        return SortResult(file_path, modified=False)
 
-    sorter = MethodSorter(order, method_type_order, creational_dunders)
+    sorter = MethodSorter(
+        groups=_resolve_groups(groups, order, creational_dunders),
+        method_type_order=_resolve_method_type_order(method_type_order),
+        sort_module=sort_module,
+    )
     new_tree = tree.visit(sorter)
 
     if not sorter.modified:
-        return False
+        return SortResult(file_path, modified=False, unmatched=tuple(sorter.unmatched))
 
     new_code = new_tree.code
 
@@ -316,4 +341,4 @@ def sort_file(
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(new_code)
 
-    return True
+    return SortResult(file_path, modified=True, unmatched=tuple(sorter.unmatched))
