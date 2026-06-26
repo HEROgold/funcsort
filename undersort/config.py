@@ -6,16 +6,17 @@ from pathlib import Path
 from undersort import logger
 
 
-def load_config() -> dict[str, list[str] | None]:
+def load_config() -> dict[str, list[str] | None]:  # noqa: PLR0912
     """Load configuration from pyproject.toml.
 
     Returns:
         Dictionary with 'order', 'method_type_order', and 'exclude' keys.
     """
     default_config: dict[str, list[str] | None] = {
-        "order": ["public", "protected", "private"],
+        "order": ["creational", "dunder", "public", "protected", "private"],
         "method_type_order": None,
         "exclude": None,
+        "creational_dunders": None,
     }
 
     pyproject_path = _find_pyproject_toml()
@@ -37,7 +38,7 @@ def load_config() -> dict[str, list[str] | None]:
 
     if "order" in config:
         order = config["order"]
-        valid_visibility_values = {"public", "protected", "private"}
+        valid_visibility_values = {"creational", "dunder", "public", "protected", "private"}
         if not all(v in valid_visibility_values for v in order):
             logger.warning(f"Invalid order values in {pyproject_path}. Using default order.")
         else:
@@ -57,6 +58,13 @@ def load_config() -> dict[str, list[str] | None]:
             result["exclude"] = exclude
         else:
             logger.warning(f"Invalid exclude value in {pyproject_path}. Must be a list.")
+
+    if "creational_dunders" in config:
+        creational_dunders = config["creational_dunders"]
+        if isinstance(creational_dunders, list):
+            result["creational_dunders"] = creational_dunders
+        else:
+            logger.warning(f"Invalid creational_dunders value in {pyproject_path}. Must be a list.")
 
     return result
 

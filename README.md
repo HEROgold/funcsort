@@ -34,13 +34,18 @@ Configure the method ordering in your `pyproject.toml`:
 ```toml
 [tool.undersort]
 # Method visibility ordering (primary sort)
-# Options: "public", "protected", "private"
-order = ["public", "protected", "private"]
+# Options: "creational", "dunder", "public", "protected", "private"
+# Default: ["creational", "dunder", "public", "protected", "private"]
+order = ["creational", "dunder", "public", "protected", "private"]
 
 # Method type ordering within each visibility level (secondary sort, optional)
 # Options: "class" (classmethod), "static" (staticmethod), "instance" (regular methods)
 # Default: ["instance", "class", "static"]
 method_type_order = ["instance", "class", "static"]
+
+# Override which dunders are treated as "creational" (optional)
+# Default: ["__new__", "__init__", "__init_subclass__", "__post_init__", "__set_name__"]
+# creational_dunders = ["__new__", "__init__", "__init_subclass__", "__post_init__", "__set_name__"]
 
 # Exclude files/directories matching these patterns (optional)
 # Patterns support glob syntax (e.g., "tests/*", "migrations/*.py", "**/generated/*")
@@ -49,9 +54,17 @@ method_type_order = ["instance", "class", "static"]
 
 ### Method Visibility Rules
 
-- **Public methods**: No underscore prefix (e.g., `def method()`) or magic methods (e.g., `__init__`, `__str__`)
+- **Creational methods**: Lifecycle dunders that construct/initialize an object or class
+  (`__new__`, `__init__`, `__init_subclass__`, `__post_init__`, `__set_name__` by default;
+  configurable via `creational_dunders`)
+- **Dunder methods**: Any other magic method (e.g., `__str__`, `__repr__`, `__eq__`, `__get__`)
+- **Public methods**: No underscore prefix (e.g., `def method()`)
 - **Protected methods**: Single underscore prefix (e.g., `def _method()`)
 - **Private methods**: Double underscore prefix, not magic (e.g., `def __method()`)
+
+> **Backward compatibility**: If `order` omits `"creational"` and `"dunder"` (e.g. you keep
+> `order = ["public", "protected", "private"]`), magic methods are treated as `public` — the
+> pre-existing behavior — so they are never dropped.
 
 ### Method Type Rules
 
@@ -63,7 +76,7 @@ method_type_order = ["instance", "class", "static"]
 
 Methods are sorted in two levels:
 
-1. **Primary**: By visibility (public → protected → private)
+1. **Primary**: By visibility (creational → dunder → public → protected → private by default)
 2. **Secondary**: Within each visibility level, by method type (instance → class → static by default)
 
 The sorting algorithm **minimizes movement** to preserve the original order as much as possible:
@@ -74,15 +87,21 @@ The sorting algorithm **minimizes movement** to preserve the original order as m
 
 Example order with default configuration:
 
-1. Public instance methods
-2. Public class methods
-3. Public static methods
-4. Protected instance methods
-5. Protected class methods
-6. Protected static methods
-7. Private instance methods
-8. Private class methods
-9. Private static methods
+1. Creational instance methods (`__init__`, `__new__`, …)
+2. Creational class methods
+3. Creational static methods
+4. Dunder instance methods (`__str__`, `__eq__`, …)
+5. Dunder class methods
+6. Dunder static methods
+7. Public instance methods
+8. Public class methods
+9. Public static methods
+10. Protected instance methods
+11. Protected class methods
+12. Protected static methods
+13. Private instance methods
+14. Private class methods
+15. Private static methods
 
 ### Skipping Sorting with `# nosort`
 
@@ -257,7 +276,7 @@ class Example:
 
 The methods are now organized by:
 
-1. **Visibility**: public (including `__init__`) → protected → private
+1. **Visibility**: creational (`__init__`) → dunder → public → protected → private
 2. **Type** (within each visibility): instance → class → static
 
 ## Development

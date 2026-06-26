@@ -10,11 +10,18 @@ from undersort.config import _find_pyproject_toml, load_config
 class TestConfigLoading:
     """Tests for configuration loading from pyproject.toml."""
 
+    DEFAULT_ORDER = ["creational", "dunder", "public", "protected", "private"]
+
     def test_default_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that default config is returned when no pyproject.toml exists."""
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["public", "protected", "private"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": self.DEFAULT_ORDER,
+            "method_type_order": None,
+            "exclude": None,
+            "creational_dunders": None,
+        }
 
     def test_load_custom_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test loading custom order from pyproject.toml."""
@@ -27,7 +34,51 @@ order = ["private", "protected", "public"]
 
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["private", "protected", "public"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": ["private", "protected", "public"],
+            "method_type_order": None,
+            "exclude": None,
+            "creational_dunders": None,
+        }
+
+    def test_load_creational_and_dunder_order(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that creational/dunder are accepted as valid order values."""
+        pyproject_content = """
+[tool.undersort]
+order = ["creational", "dunder", "public", "protected", "private"]
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        config = load_config()
+        assert config["order"] == ["creational", "dunder", "public", "protected", "private"]
+
+    def test_load_creational_dunders_override(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test loading a custom creational_dunders list."""
+        pyproject_content = """
+[tool.undersort]
+creational_dunders = ["__init__", "__new__", "__enter__"]
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        config = load_config()
+        assert config["creational_dunders"] == ["__init__", "__new__", "__enter__"]
+
+    def test_invalid_creational_dunders_type(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Test that an invalid creational_dunders type falls back to None."""
+        pyproject_content = """
+[tool.undersort]
+creational_dunders = "invalid"
+"""
+        pyproject_path = tmp_path / "pyproject.toml"
+        pyproject_path.write_text(pyproject_content)
+
+        monkeypatch.chdir(tmp_path)
+        config = load_config()
+        assert config["creational_dunders"] is None
 
     def test_invalid_order_values(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that invalid order values fall back to default."""
@@ -40,7 +91,12 @@ order = ["public", "invalid", "private"]
 
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["public", "protected", "private"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": self.DEFAULT_ORDER,
+            "method_type_order": None,
+            "exclude": None,
+            "creational_dunders": None,
+        }
 
     def test_missing_order_key(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that missing order key returns default."""
@@ -53,7 +109,12 @@ some_other_key = "value"
 
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["public", "protected", "private"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": self.DEFAULT_ORDER,
+            "method_type_order": None,
+            "exclude": None,
+            "creational_dunders": None,
+        }
 
     def test_missing_tool_section(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that missing tool.undersort section returns default."""
@@ -66,7 +127,12 @@ name = "test"
 
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["public", "protected", "private"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": self.DEFAULT_ORDER,
+            "method_type_order": None,
+            "exclude": None,
+            "creational_dunders": None,
+        }
 
     def test_find_pyproject_in_parent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that pyproject.toml is found in parent directories."""
@@ -84,7 +150,12 @@ order = ["private", "public", "protected"]
         monkeypatch.chdir(subdir)
 
         config = load_config()
-        assert config == {"order": ["private", "public", "protected"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": ["private", "public", "protected"],
+            "method_type_order": None,
+            "exclude": None,
+            "creational_dunders": None,
+        }
 
     def test_corrupted_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that corrupted TOML file falls back to default."""
@@ -97,7 +168,12 @@ order = ["public"  # Invalid TOML
 
         monkeypatch.chdir(tmp_path)
         config = load_config()
-        assert config == {"order": ["public", "protected", "private"], "method_type_order": None, "exclude": None}
+        assert config == {
+            "order": self.DEFAULT_ORDER,
+            "method_type_order": None,
+            "exclude": None,
+            "creational_dunders": None,
+        }
 
     def test_find_pyproject_toml_not_found(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test _find_pyproject_toml returns None when not found."""
@@ -130,6 +206,7 @@ exclude = ["tests/*", "migrations/*.py"]
             "order": ["public", "protected", "private"],
             "method_type_order": None,
             "exclude": ["tests/*", "migrations/*.py"],
+            "creational_dunders": None,
         }
 
     def test_invalid_exclude_type(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -148,4 +225,5 @@ exclude = "invalid"
             "order": ["public", "protected", "private"],
             "method_type_order": None,
             "exclude": None,
+            "creational_dunders": None,
         }

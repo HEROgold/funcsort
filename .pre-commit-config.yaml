@@ -8,4 +8,50 @@ repos:
         name: undersort
         entry: uv run undersort
         language: system
+        stages: [pre-commit]
         types: [python]
+      - id: ty
+        name: ty
+        entry: uv run ty check .
+        language: system
+        stages: [pre-commit]
+        types: [python]
+      - id: ruff
+        name: ruff
+        entry: uv run ruff check .
+        language: system
+        stages: [pre-commit]
+        types: [python]
+      - id: ruff format
+        name: ruff format
+        entry: uv run format .
+        language: system
+        stages: [pre-commit]
+        types: [python]
+      - id: pyrefly
+        name: pyrefly
+        entry: uv run pyrefly check .
+        language: system
+        stages: [pre-commit]
+        types: [python]
+      - id: uv-sync
+        name: uv sync
+        entry: uv sync
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+      - id: uv-lock-upgrade
+        name: uv lock --upgrade (1 week delay)
+        entry: uv lock --upgrade --exclude-newer "1 week ago"
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false
+      - id: uv-audit
+        name: uv audit
+        entry: uv audit
+        language: system
+        stages: [pre-push]
+        always_run: true
+        pass_filenames: false

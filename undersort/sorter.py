@@ -8,6 +8,16 @@ import libcst as cst
 
 from undersort import logger
 
+# Curated set of object/class lifecycle dunders treated as the "creational" group.
+# Every other magic method (``__x__``) falls into the generic "dunder" group.
+DEFAULT_CREATIONAL_DUNDERS: tuple[str, ...] = (
+    "__new__",
+    "__init__",
+    "__init_subclass__",
+    "__post_init__",
+    "__set_name__",
+)
+
 
 def has_nosort_comment(node: cst.FunctionDef | cst.ClassDef) -> bool:
     """Check if a node has a nosort comment.
@@ -49,19 +59,31 @@ def file_has_nosort(module: cst.Module) -> bool:
     return False
 
 
-def get_method_visibility(method_name: str) -> Literal["public", "private", "protected"]:
+def get_method_visibility(
+    method_name: str,
+    creational_dunders: tuple[str, ...] | list[str] | None = None,
+) -> Literal["creational", "dunder", "public", "private", "protected"]:
     """Determine method visibility based on naming convention.
 
     Args:
         method_name: The name of the method
+        creational_dunders: Names treated as the "creational" group. Defaults to
+            ``DEFAULT_CREATIONAL_DUNDERS`` when None.
 
     Returns:
-        'public' for method (no underscore prefix) or magic methods (__method__),
+        'creational' for lifecycle dunders (e.g. __init__, __new__),
+        'dunder' for any other magic method (__method__),
+        'public' for method (no underscore prefix),
         'protected' for _method (single underscore),
         'private' for __method (dunder prefix, not magic method)
     """
+    if creational_dunders is None:
+        creational_dunders = DEFAULT_CREATIONAL_DUNDERS
+
     if method_name.startswith("__") and method_name.endswith("__"):
-        return "public"
+        if method_name in creational_dunders:
+            return "creational"
+        return "dunder"
 
     if method_name.startswith("__"):
         return "private"
@@ -96,18 +118,26 @@ def get_method_type(method: cst.FunctionDef) -> str:
 class MethodSorter(cst.CSTTransformer):
     """Transformer to sort class methods by visibility and type."""
 
-    def __init__(self, order: list[str], method_type_order: list[str] | None = None):
+    def __init__(
+        self,
+        order: list[str],
+        method_type_order: list[str] | None = None,
+        creational_dunders: tuple[str, ...] | list[str] | None = None,
+    ):
         """Initialize the transformer.
 
         Args:
             order: List specifying the desired order of visibility levels
-                   (e.g., ["public", "protected", "private"])
+                   (e.g., ["creational", "dunder", "public", "protected", "private"])
             method_type_order: Optional list specifying the order of method types
                               within each visibility level
                               (e.g., ["instance", "class", "static"])
+            creational_dunders: Optional override for which dunders count as
+                              "creational". Defaults to ``DEFAULT_CREATIONAL_DUNDERS``.
         """
         self.order = order
         self.method_type_order = method_type_order or ["instance", "class", "static"]
+        self.creational_dunders = creational_dunders if creational_dunders is not None else DEFAULT_CREATIONAL_DUNDERS
         self.modified = False
 
     def leave_ClassDef(  # noqa: PLR0912, PLR0915
@@ -152,13 +182,19 @@ class MethodSorter(cst.CSTTransformer):
             return updated_node
 
         method_groups: dict[str, dict[str, list[tuple[int, cst.FunctionDef]]]] = {
+            "creational": {"class": [], "static": [], "instance": []},
+            "dunder": {"class": [], "static": [], "instance": []},
             "public": {"class": [], "static": [], "instance": []},
             "protected": {"class": [], "static": [], "instance": []},
             "private": {"class": [], "static": [], "instance": []},
         }
 
         for idx, method in sortable_methods:
-            visibility = get_method_visibility(method.name.value)
+            visibility = get_method_visibility(method.name.value, self.creational_dunders)
+            # Backward compatibility: if the config's `order` doesn't mention the
+            # dunder groups, fold them into "public" so they're never dropped.
+            if visibility in ("creational", "dunder") and visibility not in self.order:
+                visibility = "public"
             method_type = get_method_type(method)
             method_groups[visibility][method_type].append((idx, method))
 
@@ -233,6 +269,7 @@ def sort_file(
     method_type_order: list[str] | None = None,
     check_only: bool = False,
     show_diff: bool = False,
+    creational_dunders: tuple[str, ...] | list[str] | None = None,
 ) -> bool:
     """Sort methods in a Python file.
 
@@ -242,6 +279,7 @@ def sort_file(
         method_type_order: Optional method type ordering within each visibility level
         check_only: If True, only check if file needs sorting
         show_diff: If True, show diff of changes
+        creational_dunders: Optional override for which dunders count as "creational"
 
     Returns:
         True if file was modified (or needs modification in check mode)
@@ -257,7 +295,7 @@ def sort_file(
     if file_has_nosort(tree):
         return False
 
-    sorter = MethodSorter(order, method_type_order)
+    sorter = MethodSorter(order, method_type_order, creational_dunders)
     new_tree = tree.visit(sorter)
 
     if not sorter.modified:

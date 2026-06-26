@@ -2,6 +2,7 @@
 
 import tempfile
 from pathlib import Path
+from textwrap import dedent
 
 from undersort.sorter import sort_file
 
@@ -11,14 +12,15 @@ class TestNosortDirectives:
 
     def test_file_level_nosort(self) -> None:
         """Test that file-level nosort prevents all sorting."""
-        source = """# nosort: file
-class Example:
-    def _protected(self):
-        pass
+        source = dedent("""\
+            # nosort: file
+            class Example:
+                def _protected(self):
+                    pass
 
-    def public(self):
-        pass
-"""
+                def public(self):
+                    pass
+        """)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(source)
             temp_path = Path(f.name)
@@ -38,13 +40,14 @@ class Example:
 
     def test_class_level_nosort(self) -> None:
         """Test that class-level nosort prevents sorting that class."""
-        source = """class Example:  # nosort
-    def _protected(self):
-        pass
+        source = dedent("""\
+            class Example:  # nosort
+                def _protected(self):
+                    pass
 
-    def public(self):
-        pass
-"""
+                def public(self):
+                    pass
+        """)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(source)
             temp_path = Path(f.name)
@@ -64,16 +67,17 @@ class Example:
 
     def test_method_level_nosort(self) -> None:
         """Test that method-level nosort keeps that method in place."""
-        source = """class Example:
-    def public_a(self):
-        pass
+        source = dedent("""\
+            class Example:
+                def public_a(self):
+                    pass
 
-    def _protected_x(self):  # nosort
-        pass
+                def _protected_x(self):  # nosort
+                    pass
 
-    def public_b(self):
-        pass
-"""
+                def public_b(self):
+                    pass
+        """)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(source)
             temp_path = Path(f.name)
@@ -97,19 +101,20 @@ class Example:
 
     def test_multiple_nosort_methods(self) -> None:
         """Test multiple methods with nosort."""
-        source = """class Example:
-    def public_a(self):
-        pass
+        source = dedent("""\
+            class Example:
+                def public_a(self):
+                    pass
 
-    def _protected_x(self):  # nosort
-        pass
+                def _protected_x(self):  # nosort
+                    pass
 
-    def public_b(self):  # nosort
-        pass
+                def public_b(self):  # nosort
+                    pass
 
-    def _protected_y(self):
-        pass
-"""
+                def _protected_y(self):
+                    pass
+        """)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(source)
             temp_path = Path(f.name)
@@ -129,13 +134,14 @@ class Example:
 
     def test_nosort_case_insensitive(self) -> None:
         """Test that NOSORT and NoSort also work."""
-        source = """class Example:  # NOSORT
-    def _protected(self):
-        pass
+        source = dedent("""\
+            class Example:  # NOSORT
+                def _protected(self):
+                    pass
 
-    def public(self):
-        pass
-"""
+                def public(self):
+                    pass
+        """)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(source)
             temp_path = Path(f.name)
@@ -150,20 +156,21 @@ class Example:
 
     def test_nosort_with_other_classes(self) -> None:
         """Test that nosort on one class doesn't affect others."""
-        source = """class First:  # nosort
-    def _protected(self):
-        pass
+        source = dedent("""\
+            class First:  # nosort
+                def _protected(self):
+                    pass
 
-    def public(self):
-        pass
+                def public(self):
+                    pass
 
-class Second:
-    def _protected(self):
-        pass
+            class Second:
+                def _protected(self):
+                    pass
 
-    def public(self):
-        pass
-"""
+                def public(self):
+                    pass
+        """)
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
             f.write(source)
             temp_path = Path(f.name)

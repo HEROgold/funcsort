@@ -146,6 +146,7 @@ def main() -> int:  # noqa: PLR0912
                 method_type_order=config.get("method_type_order"),
                 check_only=args.check,
                 show_diff=args.diff,
+                creational_dunders=config.get("creational_dunders"),
             )
 
             if not was_modified:
