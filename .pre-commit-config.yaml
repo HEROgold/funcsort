@@ -24,7 +24,7 @@ repos:
         types: [python]
       - id: ruff format
         name: ruff format
-        entry: uv run format .
+        entry: uv run ruff format .
         language: system
         stages: [pre-commit]
         types: [python]

@@ -95,7 +95,7 @@ class TestGroups:
         assert _group_for(_function("x"), settings.groups) == "rest"
 
     def test_invalid_regex_falls_back_to_defaults(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        content = "[tool.funcsort]\n[[tool.funcsort.groups]]\nname = \"bad\"\nmatch = \"([unclosed\"\n"
+        content = '[tool.funcsort]\n[[tool.funcsort.groups]]\nname = "bad"\nmatch = "([unclosed"\n'
         _write(tmp_path, monkeypatch, content)
         assert _group_names(load_settings()) == DEFAULT_GROUP_NAMES
 

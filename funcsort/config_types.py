@@ -15,6 +15,7 @@ This module depends only on confkit's public API and never modifies the confkit 
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from typing import Any, cast, override
 
 from confkit import BaseDataType
@@ -43,8 +44,8 @@ class TomlList(BaseDataType[list[Any]]):
             parsed = ast.literal_eval(value)
         except (ValueError, SyntaxError):
             return [item.strip() for item in value.split(",") if item.strip()]
-        if isinstance(parsed, (list, tuple)):
-            return list(parsed)
+        if isinstance(parsed, Iterable) and not isinstance(parsed, (str, bytes)):
+            return list(parsed)  # pyright: ignore[reportUnknownArgumentType]
         return [parsed]
 
 

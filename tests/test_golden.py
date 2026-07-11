@@ -7,7 +7,7 @@ from textwrap import dedent
 from funcsort.groups import default_groups
 from funcsort.sorter import sort_file
 
-_INPUT = dedent('''\
+_INPUT = dedent("""\
     class Service:
         URL = "https://example.com"
 
@@ -33,11 +33,11 @@ _INPUT = dedent('''\
 
         def __private(self):
             pass
-''')
+""")
 
 # Canonical default ordering: an anchored class constant, then
 # creational -> dunder -> public (instance, class, static) -> protected -> private.
-_EXPECTED = dedent('''\
+_EXPECTED = dedent("""\
     class Service:
         URL = "https://example.com"
 
@@ -63,7 +63,7 @@ _EXPECTED = dedent('''\
 
         def __private(self):
             pass
-''')
+""")
 
 
 def test_default_config_golden_output() -> None:
