@@ -11,6 +11,7 @@ Skip the entire file:
 class Example:
     def _protected(self):
         pass
+
     def public(self):
         pass  # File won't be sorted
 ```
@@ -23,12 +24,15 @@ Skip a specific class:
 class Example:  # nosort
     def _protected(self):
         pass
+
     def public(self):
         pass  # This class won't be sorted
+
 
 class Other:
     def _protected(self):
         pass
+
     def public(self):
         pass  # This class WILL be sorted
 ```

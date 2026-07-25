@@ -57,7 +57,7 @@ class Checker:
             return None
         # Fixed argv: the executable is resolved from the venv and the only variable part
         # is a filename pytest handed us. Nothing from the source under test reaches here.
-        completed = subprocess.run(
+        completed = subprocess.run(  # noqa: S603 - fixed argv, and the checkers never run the file
             [str(executable), *self.args, path.name],
             capture_output=True,
             text=True,
