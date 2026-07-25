@@ -17,7 +17,6 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
-from .config_types import GroupTable, TomlList
 from confkit import Config
 
 from funcsort.groups import (
@@ -28,7 +27,9 @@ from funcsort.groups import (
     compile_matcher,
     default_groups,
 )
+
 from . import logger
+from .config_types import GroupTable, TomlList
 
 _CONFIG_FILENAMES = ("funcsort.toml", "pyproject.toml")
 _DEFAULT_METHOD_TYPE_ORDER = (MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.STATIC)
@@ -71,8 +72,8 @@ def load_settings() -> Settings:
     # confkit derives the section name from the class qualname, so the nested classes
     # must be named ``tool`` -> ``funcsort`` to address ``[tool.funcsort]``. This class
     # is the single definition of the config shape.
-    class tool:  # noqa: N801 - intentional: forms the "tool.funcsort" section path
-        class funcsort:  # noqa: N801
+    class tool:
+        class funcsort:
             method_type_order = _Cfg(TomlList([str(t) for t in _DEFAULT_METHOD_TYPE_ORDER]))
             exclude = _Cfg(TomlList([]))
             sort_module = _Cfg(True)
@@ -131,7 +132,7 @@ def _build_group(entry: dict[str, Any]) -> Group:
     )
 
 
-def _as_tokens(value: Any) -> list[str]:  # noqa: ANN401 - TOML scalar or list
+def _as_tokens(value: Any) -> list[str]:
     """Normalise a string-or-list config value into a list of strings."""
     if value is None:
         return []
@@ -147,12 +148,12 @@ def _parse_method_type_order(raw: list[str], path: Path) -> list[MethodKind]:
         return list(_DEFAULT_METHOD_TYPE_ORDER)
 
 
-def _parse_enum_set[E: StrEnum](value: Any, enum: type[E], default: frozenset[E] | None) -> frozenset[E] | None:  # noqa: ANN401
+def _parse_enum_set[E: StrEnum](value: Any, enum: type[E], default: frozenset[E] | None) -> frozenset[E] | None:
     """Parse a string/list config value into a frozenset of enum members.
 
     ``None`` or an ``"any"`` token resolves to ``default`` (typically "no filter").
     """
     if value is None:
         return default
-    members = {enum(item) for item in _as_tokens(value) if item != "any"}
+    members = {enum(item) for item in _as_tokens(value) if item != "any"}  # zuban:ignore[misc]
     return frozenset(members) if members else default

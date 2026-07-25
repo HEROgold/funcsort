@@ -24,6 +24,7 @@ from funcsort.groups import (
     classify,
     default_groups,
 )
+
 from . import logger
 
 _DEFAULT_METHOD_TYPE_ORDER = [MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.STATIC]
@@ -280,7 +281,7 @@ class MethodSorter(cst.CSTTransformer):
         self.unmatched: list[Member] = []
 
     @override
-    def leave_ClassDef(self, original_node: cst.ClassDef, updated_node: cst.ClassDef) -> cst.ClassDef:  # noqa: N802, ARG002
+    def leave_ClassDef(self, original_node: cst.ClassDef, updated_node: cst.ClassDef) -> cst.ClassDef:
         """Sort the methods within a class definition."""
         body = updated_node.body
         if has_nosort_comment(updated_node) or not isinstance(body, cst.IndentedBlock):
@@ -291,7 +292,7 @@ class MethodSorter(cst.CSTTransformer):
         return updated_node.with_changes(body=body.with_changes(body=new_body))
 
     @override
-    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:  # noqa: N802, ARG002
+    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
         """Sort the top-level functions of a module when enabled."""
         if not self.sort_module:
             return updated_node

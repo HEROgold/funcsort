@@ -112,7 +112,7 @@ class Group:
 
     def _matches_decorator(self, member: Member) -> bool:
         """Return whether any of the member's decorators match this group's filter."""
-        assert self.decorators is not None  # noqa: S101 - guarded by caller
+        assert self.decorators is not None
         return any(pattern.search(name) for name in member.decorators for pattern in self.decorators)
 
 

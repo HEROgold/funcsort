@@ -34,7 +34,7 @@ class TomlList(BaseDataType[list[Any]]):
         return repr(self.value)
 
     @override
-    def convert(self, value: Any) -> list[Any]:  # noqa: ANN401 - confkit hands us str or native
+    def convert(self, value: Any) -> list[Any]:
         """Parse a stored value back into a list, tolerating native and legacy forms."""
         if isinstance(value, list):
             return value
@@ -62,7 +62,7 @@ class GroupTable(BaseDataType[list[dict[str, Any]]]):
         return repr(self.value)
 
     @override
-    def convert(self, value: Any) -> list[dict[str, Any]]:  # noqa: ANN401 - str or native
+    def convert(self, value: Any) -> list[dict[str, Any]]:
         """Parse a stored value back into a list of group dicts."""
         if isinstance(value, list):
             return value
