@@ -124,47 +124,75 @@ def solve_order(problem: OrderingProblem) -> OrderingResult:
     if _satisfies(problem.desired, problem.slots, constraints):
         return OrderingResult(tuple(problem.desired), OrderingOutcome.UNCONSTRAINED)
 
+    # A failed repair is not an error: the block simply keeps the order it came in with.
     repaired = _repair(problem, constraints)
-    if repaired is None:
-        return OrderingResult(identity, OrderingOutcome.INFEASIBLE)
-    return OrderingResult(repaired, OrderingOutcome.REPAIRED)
+    return (
+        OrderingResult(identity, OrderingOutcome.INFEASIBLE)
+        if repaired is None
+        else OrderingResult(repaired, OrderingOutcome.REPAIRED)
+    )
 
 
 def _derive(problem: OrderingProblem) -> _Constraints:
     """Build the precedence edges, release times, deadlines and pins for a block."""
-    slot_of = {index: position for position, index in enumerate(problem.slots)}
+    providers = _providers(problem.candidates)
+    anchors = problem.anchors
+    return _Constraints(
+        predecessors={candidate.index: _predecessors(candidate, providers) for candidate in problem.candidates},
+        release={candidate.index: _release(candidate, anchors) for candidate in problem.candidates},
+        deadline={candidate.index: _deadline(candidate, anchors) for candidate in problem.candidates},
+        pinned=_pinned(providers, _union(anchor.provides for anchor in anchors)),
+        slot_of={index: position for position, index in enumerate(problem.slots)},
+    )
+
+
+def _providers(candidates: Sequence[Statement]) -> Mapping[str, Sequence[int]]:
+    """Map every name a candidate binds to the candidates that bind it, in body order."""
     providers: dict[str, list[int]] = {}
-    for candidate in problem.candidates:
+    for candidate in candidates:
         for name in candidate.provides:
             providers.setdefault(name, []).append(candidate.index)
+    return providers
 
-    anchor_provides = _union(anchor.provides for anchor in problem.anchors)
 
-    # A name bound more than once makes "the provider comes first" ambiguous: which
-    # binding a reader sees depends on order, so no single edge expresses it. Pin every
-    # candidate involved to its own slot instead. Rare, and conservative.
-    pinned = {index for name, indices in providers.items() if len(indices) > 1 or name in anchor_provides for index in indices}
+def _pinned(providers: Mapping[str, Sequence[int]], anchor_provides: frozenset[str]) -> frozenset[int]:
+    """Return the candidates whose bindings are too ambiguous to express as an edge.
 
-    predecessors: dict[int, frozenset[int]] = {}
-    release: dict[int, int] = {}
-    deadline: dict[int, float] = {}
-    for candidate in problem.candidates:
-        needed = {
-            providers[name][0]
-            for name in candidate.requires
-            if name in providers and len(providers[name]) == 1 and providers[name][0] != candidate.index
-        }
-        predecessors[candidate.index] = frozenset(needed)
-        release[candidate.index] = max(
-            (anchor.index for anchor in problem.anchors if anchor.provides & candidate.requires),
-            default=_NO_RELEASE,
-        )
-        deadline[candidate.index] = min(
-            (float(anchor.index) for anchor in problem.anchors if anchor.requires & candidate.provides),
-            default=_NO_DEADLINE,
-        )
+    A name bound more than once makes "the provider comes first" ambiguous: which binding
+    a reader sees depends on order, so no single edge expresses it. Every candidate
+    involved is pinned to its own slot instead. Rare, and conservative.
+    """
+    return frozenset(
+        index for name, indices in providers.items() if len(indices) > 1 or name in anchor_provides for index in indices
+    )
 
-    return _Constraints(predecessors, release, deadline, frozenset(pinned), slot_of)
+
+def _predecessors(candidate: Statement, providers: Mapping[str, Sequence[int]]) -> frozenset[int]:
+    """Return the candidates that must take an earlier slot than ``candidate``.
+
+    Only unambiguously bound names produce an edge; the rest are handled by :func:`_pinned`.
+    """
+    return frozenset(
+        providers[name][0]
+        for name in candidate.requires
+        if name in providers and len(providers[name]) == 1 and providers[name][0] != candidate.index
+    )
+
+
+def _release(candidate: Statement, anchors: Sequence[Statement]) -> int:
+    """Return the body index below which ``candidate`` may not sink."""
+    return max(
+        (anchor.index for anchor in anchors if anchor.provides & candidate.requires),
+        default=_NO_RELEASE,
+    )
+
+
+def _deadline(candidate: Statement, anchors: Sequence[Statement]) -> float:
+    """Return the body index above which ``candidate`` may not rise."""
+    return min(
+        (float(anchor.index) for anchor in anchors if anchor.requires & candidate.provides),
+        default=_NO_DEADLINE,
+    )
 
 
 def _satisfies(order: Sequence[int], slots: Sequence[int], constraints: _Constraints) -> bool:
@@ -191,31 +219,44 @@ def _repair(problem: OrderingProblem, constraints: _Constraints) -> tuple[int, .
     """
     rank = {index: position for position, index in enumerate(problem.desired)}
     unmet = {index: len(predecessors) for index, predecessors in constraints.predecessors.items()}
-    successors: dict[int, list[int]] = {index: [] for index in unmet}
-    for index, predecessors in constraints.predecessors.items():
-        for predecessor in predecessors:
-            successors[predecessor].append(index)
+    successors = _successors(constraints.predecessors)
 
     remaining = set(problem.desired)
     order: list[int] = []
     for position, body_index in enumerate(problem.slots):
         eligible = [
-            index
-            for index in remaining
-            if unmet[index] == 0
-            and constraints.release[index] < body_index
-            and constraints.deadline[index] > body_index
-            and (index not in constraints.pinned or constraints.slot_of[index] == position)
+            index for index in remaining if _is_eligible(index, constraints, unmet, position=position, body_index=body_index)
         ]
         if not eligible:
             return None
         pick = min(eligible, key=lambda index: (constraints.deadline[index], rank[index]))
         order.append(pick)
         remaining.discard(pick)
-        for successor in successors[pick]:
+        # Kahn bookkeeping: the inner loop walks one candidate's out-edges, so the whole
+        # slot loop costs O(edges) in total, not O(candidates**2).
+        for successor in successors[pick]:  # skylos: ignore[SKY-P403] O(edges) in total
             unmet[successor] -= 1
 
     return tuple(order)
+
+
+def _successors(predecessors: Mapping[int, frozenset[int]]) -> Mapping[int, Sequence[int]]:
+    """Invert the precedence edges, so releasing a candidate is a single lookup."""
+    successors: dict[int, list[int]] = {index: [] for index in predecessors}
+    for index, required in predecessors.items():
+        for predecessor in required:  # skylos: ignore[SKY-P403] visits each edge once: O(edges)
+            successors[predecessor].append(index)
+    return successors
+
+
+def _is_eligible(index: int, constraints: _Constraints, unmet: Mapping[int, int], *, position: int, body_index: int) -> bool:
+    """Return whether a candidate may legally take the slot at ``position``."""
+    return (
+        unmet[index] == 0
+        and constraints.release[index] < body_index
+        and constraints.deadline[index] > body_index
+        and (index not in constraints.pinned or constraints.slot_of[index] == position)
+    )
 
 
 def _union(sets: Iterable[frozenset[str]]) -> frozenset[str]:

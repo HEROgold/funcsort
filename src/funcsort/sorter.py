@@ -16,6 +16,7 @@ from __future__ import annotations
 import difflib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from itertools import product
 from pathlib import Path
 from typing import cast, override
 
@@ -187,13 +188,12 @@ class _BlockPlan:
 
         desired: list[int] = []
         current_position = 0
-        for group in self.groups:
-            for method_type in self.method_type_order:
-                bucket = buckets.get((group.name, method_type))
-                if not bucket:
-                    continue
-                desired.extend(_order_bucket(bucket, current_position))
-                current_position += len(bucket)
+        for group, method_type in product(self.groups, self.method_type_order):
+            bucket = buckets.get((group.name, method_type))
+            if not bucket:
+                continue
+            desired.extend(_order_bucket(bucket, current_position))
+            current_position += len(bucket)
         desired.extend(unmatched)
         return tuple(desired)
 
@@ -284,20 +284,17 @@ def _plan_block(
         flow = name_flow(item, lazy_annotations=lazy_annotations) if respect_dependencies else EMPTY_FLOW
         statement = Statement(index, flow.provides, flow.requires)
 
-        if member is None or has_nosort_comment(item):
-            anchors.append(statement)
-            continue
-        if member.kind is MemberKind.ASSIGNMENT and not assignments_sortable:
+        if member is None or not _is_movable(member, item, assignments_sortable=assignments_sortable):
             anchors.append(statement)
             continue
 
         candidates.append(statement)
         members[index] = member
-        result = classify(member, groups)
-        if result.group is None:
+        key = _bucket_key(member, groups)
+        if key is None:
             unmatched.append(member)
         else:
-            bucket_keys[index] = (result.group.name, member.method_type)
+            bucket_keys[index] = key
 
     if not candidates:
         return None
@@ -311,6 +308,21 @@ def _plan_block(
         groups=groups,
         method_type_order=_effective_method_type_order(method_type_order),
     )
+
+
+def _is_movable(member: Member, item: cst.BaseStatement, *, assignments_sortable: bool) -> bool:
+    """Return whether a classified member may be reordered rather than pinned in place."""
+    if has_nosort_comment(item):
+        return False
+    return member.kind is not MemberKind.ASSIGNMENT or assignments_sortable
+
+
+def _bucket_key(member: Member, groups: list[Group]) -> tuple[str, MethodKind] | None:
+    """Return the member's ``(group name, method type)`` bucket, or None if it matched none."""
+    result = classify(member, groups)
+    if result.group is None:
+        return None
+    return (result.group.name, member.method_type)
 
 
 def _converge(plan: _BlockPlan) -> tuple[tuple[int, ...], OrderingOutcome]:
