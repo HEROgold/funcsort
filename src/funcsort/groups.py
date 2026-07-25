@@ -62,6 +62,7 @@ class Member:
         method_type: Binding of a function; :attr:`MethodKind.INSTANCE` for assignments.
         scope: Whether the member lives in a class or module body.
         decorators: Normalised, dotted decorator names applied to the member.
+
     """
 
     index: int
@@ -85,6 +86,7 @@ class Group:
         scopes: Scopes this group accepts; ``None`` means any.
         decorators: If set, the member must carry a decorator whose name matches one of
             these patterns; ``None`` means no decorator requirement.
+
     """
 
     name: str
@@ -112,7 +114,7 @@ class Group:
 
     def _matches_decorator(self, member: Member) -> bool:
         """Return whether any of the member's decorators match this group's filter."""
-        assert self.decorators is not None
+        assert self.decorators is not None  # noqa: S101 - guarded by caller
         return any(pattern.search(name) for name in member.decorators for pattern in self.decorators)
 
 
