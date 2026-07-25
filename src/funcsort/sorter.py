@@ -11,11 +11,10 @@ import difflib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 import libcst as cst
 
-from funcsort import logger
 from funcsort.groups import (
     Group,
     Member,
@@ -25,6 +24,7 @@ from funcsort.groups import (
     classify,
     default_groups,
 )
+from . import logger
 
 _DEFAULT_METHOD_TYPE_ORDER = [MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.STATIC]
 
@@ -71,7 +71,7 @@ def has_nosort_comment(node: cst.CSTNode) -> bool:
 def file_has_nosort(module: cst.Module) -> bool:
     """Return whether the file has a ``# nosort: file`` directive in its header."""
     for line in module.header:
-        if isinstance(line, cst.EmptyLine) and line.comment:
+        if isinstance(line, cst.EmptyLine) and line.comment:  # pyright: ignore[reportUnnecessaryIsInstance]
             comment_text = line.comment.value.lower()
             if "nosort" in comment_text and "file" in comment_text:
                 return True
@@ -88,91 +88,7 @@ def get_method_type(method: cst.FunctionDef) -> MethodKind:
     return MethodKind.INSTANCE
 
 
-def _decorator_names(method: cst.FunctionDef) -> tuple[str, ...]:
-    """Return the normalised dotted names of a function's decorators (calls stripped)."""
-    return tuple(name for name in (_decorator_name(d.decorator) for d in method.decorators) if name)
-
-
-def _decorator_name(node: cst.BaseExpression) -> str:
-    """Normalise a decorator expression to its dotted name (``a.b.c``), stripping calls."""
-    if isinstance(node, cst.Call):
-        node = node.func
-    parts: list[str] = []
-    while isinstance(node, cst.Attribute):
-        parts.append(node.attr.value)
-        node = node.value
-    if isinstance(node, cst.Name):
-        parts.append(node.value)
-    return ".".join(reversed(parts))
-
-
-def _assignment_target_name(line: cst.SimpleStatementLine) -> str | None:
-    """Return the single simple target name of an assignment line, else None."""
-    if len(line.body) != 1:
-        return None
-    statement = line.body[0]
-    if isinstance(statement, cst.Assign):
-        if len(statement.targets) == 1 and isinstance(statement.targets[0].target, cst.Name):
-            return statement.targets[0].target.value
-        return None
-    if isinstance(statement, cst.AnnAssign) and isinstance(statement.target, cst.Name):
-        return statement.target.value
-    return None
-
-
-def _as_member(index: int, node: cst.BaseStatement, scope: Scope) -> Member | None:
-    """Build a :class:`Member` for a sortable statement, or None for structural items."""
-    if isinstance(node, cst.FunctionDef):
-        return Member(
-            index,
-            node,
-            MemberKind.FUNCTION,
-            node.name.value,
-            get_method_type(node),
-            scope,
-            _decorator_names(node),
-        )
-    if isinstance(node, cst.SimpleStatementLine):
-        name = _assignment_target_name(node)
-        if name is not None:
-            return Member(index, node, MemberKind.ASSIGNMENT, name, MethodKind.INSTANCE, scope)
-    return None
-
-
-def _effective_method_type_order(method_type_order: list[MethodKind]) -> list[MethodKind]:
-    """Return the order with any missing method types appended (never drop members)."""
-    return [*method_type_order, *(t for t in MethodKind if t not in method_type_order)]
-
-
-# A candidate paired with its position in the candidate sequence (the index space the
-# minimise-movement logic operates on, independent of anchored/structural items).
-_Placed = tuple[int, Member]
-
-
-def _order_bucket(bucket: list[_Placed], current_position: int) -> list[Member]:
-    """Order one bucket, minimising movement relative to the candidate sequence.
-
-    Members that started before the bucket's span (or before what is already placed) go
-    first, members within the span keep their place, and members after the span go last —
-    each subgroup stable by original position.
-    """
-    positions = [position for position, _ in bucket]
-    min_pos, max_pos = min(positions), max(positions)
-
-    moved_down: list[Member] = []
-    in_place: list[Member] = []
-    moved_up: list[Member] = []
-    for position, member in sorted(bucket, key=lambda placed: placed[0]):
-        if position < min_pos or (current_position > 0 and position < current_position):
-            moved_down.append(member)
-        elif position > max_pos:
-            moved_up.append(member)
-        else:
-            in_place.append(member)
-    return moved_down + in_place + moved_up
-
-
-def _sort_block(
+def sort_block(
     body: Sequence[cst.BaseStatement],
     *,
     scope: Scope,
@@ -224,56 +140,6 @@ def _sort_block(
     new_body = [next(fill) if index in candidate_set else item for index, item in enumerate(items)]
 
     return BlockSortResult(new_body, modified=modified, unmatched=tuple(unmatched))
-
-
-class MethodSorter(cst.CSTTransformer):
-    """Transformer that sorts class methods and (optionally) module-level functions."""
-
-    def __init__(
-        self,
-        groups: list[Group],
-        method_type_order: list[MethodKind],
-        sort_module: bool = True,
-    ) -> None:
-        """Initialise the transformer with resolved configuration."""
-        self.groups = groups
-        self.method_type_order = method_type_order
-        self.sort_module = sort_module
-        self.modified = False
-        self.unmatched: list[Member] = []
-
-    def leave_ClassDef(self, original_node: cst.ClassDef, updated_node: cst.ClassDef) -> cst.ClassDef:  # noqa: N802, ARG002
-        """Sort the methods within a class definition."""
-        body = updated_node.body
-        if has_nosort_comment(updated_node) or not isinstance(body, cst.IndentedBlock):
-            return updated_node
-        new_body = self._apply(list(body.body), Scope.CLASS)
-        if new_body is None:
-            return updated_node
-        return updated_node.with_changes(body=body.with_changes(body=new_body))
-
-    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:  # noqa: N802, ARG002
-        """Sort the top-level functions of a module when enabled."""
-        if not self.sort_module:
-            return updated_node
-        new_body = self._apply(list(updated_node.body), Scope.MODULE)
-        if new_body is None:
-            return updated_node
-        return updated_node.with_changes(body=new_body)
-
-    def _apply(self, body: list[cst.BaseStatement], scope: Scope) -> list[cst.BaseStatement] | None:
-        """Run the shared sorter on a block; record state; return the new body or None."""
-        result = _sort_block(
-            body,
-            scope=scope,
-            groups=self.groups,
-            method_type_order=self.method_type_order,
-        )
-        self.unmatched.extend(result.unmatched)
-        if not result.modified:
-            return None
-        self.modified = True
-        return result.new_body
 
 
 def sort_file(
@@ -334,3 +200,139 @@ def sort_file(
             f.write(new_code)
 
     return SortResult(file_path, modified=True, unmatched=tuple(sorter.unmatched))
+
+
+def _decorator_names(method: cst.FunctionDef) -> tuple[str, ...]:
+    """Return the normalised dotted names of a function's decorators (calls stripped)."""
+    return tuple(name for name in (_decorator_name(d.decorator) for d in method.decorators) if name)
+
+
+def _decorator_name(node: cst.BaseExpression) -> str:
+    """Normalise a decorator expression to its dotted name (``a.b.c``), stripping calls."""
+    if isinstance(node, cst.Call):
+        node = node.func
+    parts: list[str] = []
+    while isinstance(node, cst.Attribute):
+        parts.append(node.attr.value)
+        node = node.value
+    if isinstance(node, cst.Name):
+        parts.append(node.value)
+    return ".".join(reversed(parts))
+
+
+def _assignment_target_name(line: cst.SimpleStatementLine) -> str | None:
+    """Return the single simple target name of an assignment line, else None."""
+    if len(line.body) != 1:
+        return None
+    statement = line.body[0]
+    if isinstance(statement, cst.Assign):
+        if len(statement.targets) == 1 and isinstance(statement.targets[0].target, cst.Name):
+            return statement.targets[0].target.value
+        return None
+    if isinstance(statement, cst.AnnAssign) and isinstance(statement.target, cst.Name):
+        return statement.target.value
+    return None
+
+
+# A candidate paired with its position in the candidate sequence (the index space the
+# minimise-movement logic operates on, independent of anchored/structural items).
+_Placed = tuple[int, Member]
+
+
+def _as_member(index: int, node: cst.BaseStatement, scope: Scope) -> Member | None:
+    """Build a :class:`Member` for a sortable statement, or None for structural items."""
+    if isinstance(node, cst.FunctionDef):
+        return Member(
+            index,
+            node,
+            MemberKind.FUNCTION,
+            node.name.value,
+            get_method_type(node),
+            scope,
+            _decorator_names(node),
+        )
+    if isinstance(node, cst.SimpleStatementLine):
+        name = _assignment_target_name(node)
+        if name is not None:
+            return Member(index, node, MemberKind.ASSIGNMENT, name, MethodKind.INSTANCE, scope)
+    return None
+
+
+def _effective_method_type_order(method_type_order: list[MethodKind]) -> list[MethodKind]:
+    """Return the order with any missing method types appended (never drop members)."""
+    return [*method_type_order, *(t for t in MethodKind if t not in method_type_order)]
+
+
+class MethodSorter(cst.CSTTransformer):
+    """Transformer that sorts class methods and (optionally) module-level functions."""
+
+    def __init__(
+        self,
+        groups: list[Group],
+        method_type_order: list[MethodKind],
+        sort_module: bool = True,
+    ) -> None:
+        """Initialise the transformer with resolved configuration."""
+        self.groups = groups
+        self.method_type_order = method_type_order
+        self.sort_module = sort_module
+        self.modified = False
+        self.unmatched: list[Member] = []
+
+    @override
+    def leave_ClassDef(self, original_node: cst.ClassDef, updated_node: cst.ClassDef) -> cst.ClassDef:  # noqa: N802, ARG002
+        """Sort the methods within a class definition."""
+        body = updated_node.body
+        if has_nosort_comment(updated_node) or not isinstance(body, cst.IndentedBlock):
+            return updated_node
+        new_body = self._apply(list(body.body), Scope.CLASS)
+        if new_body is None:
+            return updated_node
+        return updated_node.with_changes(body=body.with_changes(body=new_body))
+
+    @override
+    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:  # noqa: N802, ARG002
+        """Sort the top-level functions of a module when enabled."""
+        if not self.sort_module:
+            return updated_node
+        new_body = self._apply(list(updated_node.body), Scope.MODULE)
+        if new_body is None:
+            return updated_node
+        return updated_node.with_changes(body=new_body)
+
+    def _apply(self, body: list[cst.BaseStatement], scope: Scope) -> list[cst.BaseStatement] | None:
+        """Run the shared sorter on a block; record state; return the new body or None."""
+        result = sort_block(
+            body,
+            scope=scope,
+            groups=self.groups,
+            method_type_order=self.method_type_order,
+        )
+        self.unmatched.extend(result.unmatched)
+        if not result.modified:
+            return None
+        self.modified = True
+        return result.new_body
+
+
+def _order_bucket(bucket: list[_Placed], current_position: int) -> list[Member]:
+    """Order one bucket, minimising movement relative to the candidate sequence.
+
+    Members that started before the bucket's span (or before what is already placed) go
+    first, members within the span keep their place, and members after the span go last —
+    each subgroup stable by original position.
+    """
+    positions = [position for position, _ in bucket]
+    min_pos, max_pos = min(positions), max(positions)
+
+    moved_down: list[Member] = []
+    in_place: list[Member] = []
+    moved_up: list[Member] = []
+    for position, member in sorted(bucket, key=lambda placed: placed[0]):
+        if position < min_pos or (current_position > 0 and position < current_position):
+            moved_down.append(member)
+        elif position > max_pos:
+            moved_up.append(member)
+        else:
+            in_place.append(member)
+    return moved_down + in_place + moved_up

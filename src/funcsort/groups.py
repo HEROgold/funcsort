@@ -148,14 +148,6 @@ def compile_matcher(token: str) -> re.Pattern[str]:
     return re.compile(token)
 
 
-def _dunder_matcher(creational_dunders: tuple[str, ...] | list[str]) -> re.Pattern[str]:
-    """Match any magic method (``__x__``) that is not one of the creational names."""
-    if not creational_dunders:
-        return re.compile(r"^__.+__$")
-    alternation = "|".join(re.escape(name) for name in creational_dunders)
-    return re.compile(rf"^(?!(?:{alternation})$)__.+__$")
-
-
 def default_groups(creational_dunders: tuple[str, ...] | list[str] = DEFAULT_CREATIONAL_DUNDERS) -> list[Group]:
     """Return the built-in groups, in output order.
 
@@ -182,3 +174,11 @@ def classify(member: Member, groups: list[Group]) -> Classification:
         if group.accepts(member):
             return Classification(member, group)
     return Classification(member, None)
+
+
+def _dunder_matcher(creational_dunders: tuple[str, ...] | list[str]) -> re.Pattern[str]:
+    """Match any magic method (``__x__``) that is not one of the creational names."""
+    if not creational_dunders:
+        return re.compile(r"^__.+__$")
+    alternation = "|".join(re.escape(name) for name in creational_dunders)
+    return re.compile(rf"^(?!(?:{alternation})$)__.+__$")

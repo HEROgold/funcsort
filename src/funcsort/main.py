@@ -8,9 +8,10 @@ from pathlib import Path
 
 from herogold.argparse import Actions, Argument, parser
 
-from funcsort import logger
 from funcsort.config import Settings, load_settings
 from funcsort.sorter import sort_file
+
+from . import logger
 
 _EXCLUDE_DIRS = {"venv", "__pycache__", "node_modules"}
 
@@ -70,31 +71,6 @@ def collect_python_files(path: Path, recursive: bool = True, exclude_patterns: l
     return sorted(files)
 
 
-def _matches_any_pattern(file_path: Path, patterns: list[str]) -> bool:
-    """Return whether ``file_path`` matches any of the glob ``patterns``."""
-    path_str = str(file_path)
-    for pattern in patterns:
-        if fnmatch.fnmatch(path_str, pattern):
-            return True
-        if "/" not in pattern:
-            if fnmatch.fnmatch(file_path.name, pattern):
-                return True
-            continue
-        if fnmatch.fnmatch(path_str, f"*/{pattern}"):
-            return True
-        for part_idx in range(len(file_path.parts)):
-            subpath = str(Path(*file_path.parts[part_idx:]))
-            if fnmatch.fnmatch(subpath, pattern):
-                return True
-    return False
-
-
-def _resolve_exclude(settings: Settings, cli_exclude: list[str] | None) -> list[str] | None:
-    """Merge config and CLI exclusion patterns."""
-    patterns = [*settings.exclude, *(cli_exclude or [])]
-    return patterns or None
-
-
 def main() -> int:
     """Run the funcsort CLI."""
     args = parser.parse_args()
@@ -141,6 +117,31 @@ def main() -> int:
 
     _report_unmatched(unmatched_names)
     return _report(modified_files, errors, check_only=args.check)
+
+
+def _matches_any_pattern(file_path: Path, patterns: list[str]) -> bool:
+    """Return whether ``file_path`` matches any of the glob ``patterns``."""
+    path_str = str(file_path)
+    for pattern in patterns:
+        if fnmatch.fnmatch(path_str, pattern):
+            return True
+        if "/" not in pattern:
+            if fnmatch.fnmatch(file_path.name, pattern):
+                return True
+            continue
+        if fnmatch.fnmatch(path_str, f"*/{pattern}"):
+            return True
+        for part_idx in range(len(file_path.parts)):
+            subpath = str(Path(*file_path.parts[part_idx:]))
+            if fnmatch.fnmatch(subpath, pattern):
+                return True
+    return False
+
+
+def _resolve_exclude(settings: Settings, cli_exclude: list[str] | None) -> list[str] | None:
+    """Merge config and CLI exclusion patterns."""
+    patterns = [*settings.exclude, *(cli_exclude or [])]
+    return patterns or None
 
 
 def _report_unmatched(unmatched_names: set[str]) -> None:

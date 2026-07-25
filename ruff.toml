@@ -1,0 +1,9 @@
+include = ["ALL"]
+unsafe-fixes = true
+target-version = "py312"
+line-length = 128
+
+[lint.per-file-ignores]
+"tests/**/*.py" = [
+  "S101", # Allow assert in tests
+]

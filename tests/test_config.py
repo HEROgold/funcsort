@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from funcsort.config import Settings, _find_config_file, load_settings
+from funcsort.config import Settings, find_config_file, load_settings
 from funcsort.groups import Group, Member, MemberKind, MethodKind, Scope, classify
 
 DEFAULT_GROUP_NAMES = ["creational", "dunder", "public", "protected", "private"]
@@ -144,15 +144,15 @@ class TestDiscovery:
         monkeypatch.chdir(nested)
         assert _group_names(load_settings()) == ["parent"]
 
-    def test_find_config_file_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def testfind_config_file_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.chdir(tmp_path)
-        assert _find_config_file() is None
+        assert find_config_file() is None
 
-    def test_find_config_file_found(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def testfind_config_file_found(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         path = tmp_path / "funcsort.toml"
         path.write_text("[tool.funcsort]\n")
         monkeypatch.chdir(tmp_path)
-        assert _find_config_file() == path
+        assert find_config_file() == path
 
     def test_corrupted_toml_falls_back(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _write(tmp_path, monkeypatch, "[tool.funcsort\nmethod_type_order = [\n")

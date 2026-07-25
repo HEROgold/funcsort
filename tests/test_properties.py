@@ -18,7 +18,7 @@ from funcsort.groups import (
     classify,
     default_groups,
 )
-from funcsort.sorter import _sort_block
+from funcsort.sorter import sort_block
 
 _PREFIXES = ["", "_", "__", "__dunder_"]
 _DECORATORS = ["", "@classmethod\n", "@staticmethod\n"]
@@ -89,7 +89,7 @@ def _method_names(source: str) -> list[str]:
 
 def _sorted_names(source: str, groups: list[Group]) -> list[str]:
     _, body = _class_body(source)
-    result = _sort_block(list(body.body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
+    result = sort_block(list(body.body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
     new_body = body.with_changes(body=result.new_body)
     return _function_names(new_body)
 
@@ -108,8 +108,8 @@ def test_sorting_is_idempotent(source: str) -> None:
     once = _sorted_names(source, groups)
     # Re-emit the once-sorted source and sort again; the order must be stable.
     _, body = _class_body(source)
-    first = _sort_block(list(body.body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
-    second = _sort_block(list(first.new_body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
+    first = sort_block(list(body.body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
+    second = sort_block(list(first.new_body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
     assert second.modified is False
     assert [n.name.value for n in second.new_body if isinstance(n, cst.FunctionDef)] == once
 

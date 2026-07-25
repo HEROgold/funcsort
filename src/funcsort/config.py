@@ -17,10 +17,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from .config_types import GroupTable, TomlList
 from confkit import Config
 
-from funcsort import logger
-from funcsort.config_types import GroupTable, TomlList
 from funcsort.groups import (
     Group,
     MemberKind,
@@ -29,6 +28,7 @@ from funcsort.groups import (
     compile_matcher,
     default_groups,
 )
+from . import logger
 
 _CONFIG_FILENAMES = ("funcsort.toml", "pyproject.toml")
 _DEFAULT_METHOD_TYPE_ORDER = (MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.STATIC)
@@ -59,7 +59,7 @@ def load_settings() -> Settings:
     Falls back to built-in defaults when no config file or section is present, or when
     the configured groups are invalid.
     """
-    path = _find_config_file()
+    path = find_config_file()
     if path is None:
         return Settings(groups=default_groups())
 
@@ -87,7 +87,7 @@ def load_settings() -> Settings:
     )
 
 
-def _find_config_file() -> Path | None:
+def find_config_file() -> Path | None:
     """Find ``funcsort.toml`` (preferred) or ``pyproject.toml`` in cwd or a parent."""
     current_dir = Path.cwd()
     for directory in [current_dir, *current_dir.parents]:
