@@ -17,9 +17,12 @@ goes in which slot", subject to:
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping, Sequence
 
 _NO_RELEASE = -1
 _NO_DEADLINE = float("inf")
