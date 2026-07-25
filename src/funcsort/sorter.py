@@ -14,10 +14,8 @@ order to them.
 from __future__ import annotations
 
 import difflib
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
-from typing import cast, override
+from typing import TYPE_CHECKING, cast, override
 
 import libcst as cst
 
@@ -40,6 +38,10 @@ from funcsort.ordering import (
 from funcsort.references import EMPTY_FLOW, name_flow, uses_future_annotations
 
 from . import logger
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+    from pathlib import Path
 
 _DEFAULT_METHOD_TYPE_ORDER = [MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.STATIC]
 
@@ -217,13 +219,13 @@ def sort_file(
     resolved_groups = groups if groups is not None else default_groups()
     resolved_order = method_type_order if method_type_order is not None else list(_DEFAULT_METHOD_TYPE_ORDER)
 
-    with open(file_path, encoding="utf-8") as f:
-        source_code = f.read()
+    source_code = file_path.read_text(encoding="utf-8")
 
     try:
         tree = cst.parse_module(source_code)
     except cst.ParserSyntaxError as e:
-        raise ValueError(f"Syntax error in {file_path}: {e}")
+        msg = f"Syntax error in {file_path}: {e}"
+        raise ValueError(msg) from e
 
     if file_has_nosort(tree):
         return SortResult(file_path, modified=False)
@@ -256,8 +258,7 @@ def sort_file(
         logger.diff("".join(diff))
 
     if not check_only:
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(new_code)
+        file_path.write_text(new_code, encoding="utf-8")
 
     return SortResult(file_path, modified=True, unmatched=tuple(sorter.unmatched))
 
@@ -422,6 +423,7 @@ class MethodSorter(cst.CSTTransformer):
         self,
         groups: list[Group],
         method_type_order: list[MethodKind],
+        *,
         sort_module: bool = True,
         respect_dependencies: bool = True,
     ) -> None:
