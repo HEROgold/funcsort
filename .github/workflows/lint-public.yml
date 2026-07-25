@@ -38,17 +38,17 @@ jobs:
       matrix:
         include:
           - tool: ruff
-            args: "check ./examples"
+            args: "check ."
           - tool: ty
-            args: "check ./examples --ignore no-matching-overload"
+            args: "check . --ignore no-matching-overload"
           - tool: pyrefly
-            args: "check ./examples"
+            args: "check ."
           - tool: zuban
-            args: "check ./examples"
+            args: "check ."
           - tool: mypy
-            args: "./examples"
+            args: "."
           - tool: pyright
-            args: "./examples"
+            args: "."
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
