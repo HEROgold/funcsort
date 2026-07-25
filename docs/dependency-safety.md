@@ -5,12 +5,11 @@ statement reads *while it executes* must already be defined, so funcsort will no
 definition below code that depends on it:
 
 ```python
-def _make_strategy():
-    ...
+def _make_strategy(): ...
 
-@given(_make_strategy())      # runs at import time
-def test_thing(value):
-    ...
+
+@given(_make_strategy())  # runs at import time
+def test_thing(value): ...
 ```
 
 Here `test_thing` is public and `_make_strategy` is protected, so grouping alone would

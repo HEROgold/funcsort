@@ -20,7 +20,6 @@ max-args = 8
 [lint.per-file-ignores]
 "tests/**/*.py" = [
   "S101",    # assert is the point of a test
-  "S102",    # exec() deliberately runs sorted output to prove it still imports
   "D100",    # test module/class/function names describe themselves
   "D101",
   "D102",
