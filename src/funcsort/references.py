@@ -35,6 +35,7 @@ class NameFlow:
     Attributes:
         provides: Names bound in the enclosing scope by this statement.
         requires: Free names read eagerly, i.e. while the statement itself runs.
+
     """
 
     provides: frozenset[str] = frozenset()
@@ -58,6 +59,7 @@ def name_flow(node: cst.CSTNode, *, lazy_annotations: bool = False) -> NameFlow:
 
     Returns:
         The names the statement binds and the names it needs at execution time.
+
     """
     return NameFlow(
         provides=frozenset(_bound_names(node)),
@@ -121,7 +123,7 @@ class _BoundNames(cst.CSTVisitor):
 
     @override
     def visit_Lambda(self, node: cst.Lambda) -> bool:
-        """A lambda binds nothing in the enclosing scope."""
+        """Skip a lambda: it binds nothing in the enclosing scope."""
         return False
 
     @override
@@ -143,13 +145,13 @@ class _BoundNames(cst.CSTVisitor):
 
     @override
     def visit_AugAssign(self, node: cst.AugAssign) -> bool:
-        """An augmented assignment rebinds its target."""
+        """Bind the target of an augmented assignment, which rebinds it."""
         self._bind_target(node.target)
         return False
 
     @override
     def visit_NamedExpr(self, node: cst.NamedExpr) -> bool:
-        """A walrus binds its target in the enclosing scope."""
+        """Bind a walrus target, which lands in the enclosing scope."""
         self._bind_target(node.target)
         return True
 
@@ -173,7 +175,7 @@ class _BoundNames(cst.CSTVisitor):
 
     @override
     def visit_For(self, node: cst.For) -> bool:
-        """The loop target is bound in the enclosing scope."""
+        """Bind the loop target, which lands in the enclosing scope."""
         self._bind_target(node.target)
         return True
 
@@ -193,14 +195,14 @@ class _BoundNames(cst.CSTVisitor):
 
     @override
     def visit_MatchAs(self, node: cst.MatchAs) -> bool:
-        """A match capture pattern binds its name."""
+        """Bind the name captured by a match pattern."""
         if node.name is not None:
             self.names.add(node.name.value)
         return True
 
     @override
     def visit_MatchStar(self, node: cst.MatchStar) -> bool:
-        """A starred match pattern binds its name."""
+        """Bind the name captured by a starred match pattern."""
         if node.name is not None:
             self.names.add(node.name.value)
         return True
@@ -258,7 +260,7 @@ class _FreeNames(cst.CSTVisitor):
 
     @override
     def visit_Param(self, node: cst.Param) -> bool:
-        """A parameter's name is a binding; only its default and annotation are read."""
+        """Read only a parameter's default and annotation; its name is a binding."""
         self._visit_annotation(node.annotation)
         if node.default is not None:
             node.default.visit(self)
@@ -281,7 +283,7 @@ class _FreeNames(cst.CSTVisitor):
 
     @override
     def visit_ClassDef(self, node: cst.ClassDef) -> bool:
-        """A class body executes at definition time, so recurse into it.
+        """Recurse into a class body, which executes at definition time.
 
         Names bound inside the body are deliberately *not* subtracted: ``name = name``
         idioms make subtraction unsound, and keeping them only adds a harmless edge.
@@ -311,7 +313,7 @@ class _FreeNames(cst.CSTVisitor):
 
     @override
     def visit_AssignTarget(self, node: cst.AssignTarget) -> bool:
-        """A target is written, not read -- but ``obj.attr`` and ``d[k]`` do read their base."""
+        """Read only what a target dereferences: ``obj.attr`` and ``d[k]`` need their base."""
         self._visit_target(node.target)
         return False
 
@@ -333,12 +335,12 @@ class _FreeNames(cst.CSTVisitor):
 
     @override
     def visit_Import(self, node: cst.Import) -> bool:
-        """An import reads nothing from the enclosing scope."""
+        """Skip an import: it reads nothing from the enclosing scope."""
         return False
 
     @override
     def visit_ImportFrom(self, node: cst.ImportFrom) -> bool:
-        """An import reads nothing from the enclosing scope."""
+        """Skip an import: it reads nothing from the enclosing scope."""
         return False
 
     @override

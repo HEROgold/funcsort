@@ -49,7 +49,7 @@ parser.set_defaults(check=False, diff=False, recursive=True, sort_module=None, r
 parser.add_argument("paths", nargs="+", type=Path, help="Python files or directories to sort")
 
 
-def collect_python_files(path: Path, recursive: bool = True, exclude_patterns: list[str] | None = None) -> list[Path]:
+def collect_python_files(path: Path, *, recursive: bool = True, exclude_patterns: list[str] | None = None) -> list[Path]:
     """Collect Python files from a file or directory path.
 
     Args:
@@ -59,6 +59,7 @@ def collect_python_files(path: Path, recursive: bool = True, exclude_patterns: l
 
     Returns:
         Sorted list of matching ``.py`` file paths.
+
     """
     if path.is_file():
         return [path] if path.suffix == ".py" else []
@@ -91,7 +92,7 @@ def main() -> int:
         if not path.exists():
             logger.error(f"Path not found: {path}")
             continue
-        all_files.extend(collect_python_files(path, args.recursive, exclude_patterns))
+        all_files.extend(collect_python_files(path, recursive=args.recursive, exclude_patterns=exclude_patterns))
 
     if not all_files:
         logger.warning("No Python files found")
@@ -124,7 +125,7 @@ def main() -> int:
             logger.success(f"Sorted {file_path}")
 
     _report_unmatched(unmatched_names)
-    return _report(modified_files, errors, check_only=args.check)
+    return _report(modified_files, errors=errors, check_only=args.check)
 
 
 def _matches_any_pattern(file_path: Path, patterns: list[str]) -> bool:
@@ -159,7 +160,7 @@ def _report_unmatched(unmatched_names: set[str]) -> None:
         logger.warning(f"Members matched no group and were moved to the end: {names}. Configure a group for them.")
 
 
-def _report(modified_files: list[Path], errors: bool, *, check_only: bool) -> int:
+def _report(modified_files: list[Path], *, errors: bool, check_only: bool) -> int:
     """Emit a summary and return the process exit code."""
     if check_only and modified_files:
         logger.warning(f"Files that need sorting: {len(modified_files)}")
