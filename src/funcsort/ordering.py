@@ -40,33 +40,26 @@ class OrderingOutcome(StrEnum):
 
 @dataclass(frozen=True)
 class Statement:
-    """A statement's position and its load-time name flow.
-
-    Attributes:
-        index: Position within the block body.
-        provides: Names the statement binds.
-        requires: Names the statement reads while executing.
-    """
+    """A statement's position within its block body, and its load-time name flow."""
 
     index: int
     provides: frozenset[str] = frozenset()
     requires: frozenset[str] = frozenset()
+    """Names read *while the statement executes* -- a decorator expression or a parameter
+    default, never a function body, which runs long after the module is loaded."""
 
 
 @dataclass(frozen=True)
 class OrderingProblem:
-    """A block's candidates, its fixed anchors, and the order the groups want.
-
-    Attributes:
-        anchors: Statements fixed at their own index.
-        candidates: Movable statements, identified by their original index.
-        slots: Ascending body indices the candidates may occupy.
-        desired: Candidate indices in the order the grouping engine prefers.
-    """
+    """A block's candidates, its fixed anchors, and the order the groups want."""
 
     anchors: tuple[Statement, ...]
+    """Statements pinned to their own index; they never move."""
+
     candidates: tuple[Statement, ...]
     slots: tuple[int, ...]
+    """Ascending body indices the candidates may occupy -- the anchors' complement."""
+
     desired: tuple[int, ...]
 
     def with_desired(self, desired: Sequence[int]) -> OrderingProblem:
@@ -76,14 +69,11 @@ class OrderingProblem:
 
 @dataclass(frozen=True)
 class OrderingResult:
-    """The order to emit, and how it was arrived at.
-
-    Attributes:
-        order: Candidate indices in the order they should fill the slots.
-        outcome: Whether the desired order was kept, repaired, or abandoned.
-    """
+    """The order to emit, and how it was arrived at."""
 
     order: tuple[int, ...]
+    """Candidate indices in the order they should fill :attr:`OrderingProblem.slots`."""
+
     outcome: OrderingOutcome
 
     @property
@@ -116,12 +106,8 @@ class _Constraints:
 def solve_order(problem: OrderingProblem) -> OrderingResult:
     """Fit the desired order to the block's load-time dependencies.
 
-    Args:
-        problem: The block's anchors, candidates, slots and preferred order.
-
-    Returns:
-        The order to emit. On :attr:`OrderingOutcome.INFEASIBLE` the order is the block's
-        original one, which is always safe because the input file already runs.
+    On :attr:`OrderingOutcome.INFEASIBLE` the returned order is the block's original one,
+    which is always safe because the input file already runs.
     """
     identity = tuple(statement.index for statement in sorted(problem.candidates, key=lambda s: s.index))
     constraints = _derive(problem)
