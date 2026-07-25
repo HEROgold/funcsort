@@ -170,12 +170,11 @@ statement reads *while it executes* must already be defined, so funcsort will no
 definition below code that depends on it:
 
 ```python
-def _make_strategy():
-    ...
+def _make_strategy(): ...
 
-@given(_make_strategy())      # runs at import time
-def test_thing(value):
-    ...
+
+@given(_make_strategy())  # runs at import time
+def test_thing(value): ...
 ```
 
 Here `test_thing` is public and `_make_strategy` is protected, so grouping alone would
@@ -210,6 +209,7 @@ You can prevent sorting at different levels using `# nosort` comments (case-inse
 class Example:
     def _protected(self):
         pass
+
     def public(self):
         pass  # File won't be sorted
 ```
@@ -220,12 +220,15 @@ class Example:
 class Example:  # nosort
     def _protected(self):
         pass
+
     def public(self):
         pass  # This class won't be sorted
+
 
 class Other:
     def _protected(self):
         pass
+
     def public(self):
         pass  # This class WILL be sorted
 ```

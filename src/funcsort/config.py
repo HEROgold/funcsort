@@ -46,6 +46,7 @@ class Settings:
         sort_module: Whether module-level functions are sorted.
         respect_dependencies: Whether ordering keeps a definition ahead of anything that
             reads it at import time (decorators, parameter defaults, assignment values).
+
     """
 
     groups: list[Group]
@@ -75,12 +76,13 @@ def load_settings() -> Settings:
     # confkit derives the section name from the class qualname, so the nested classes
     # must be named ``tool`` -> ``funcsort`` to address ``[tool.funcsort]``. This class
     # is the single definition of the config shape.
-    class tool:
-        class funcsort:
+    class tool:  # noqa: N801 - intentional: forms the "tool.funcsort" section path
+        class funcsort:  # noqa: N801
             method_type_order = _Cfg(TomlList([str(t) for t in _DEFAULT_METHOD_TYPE_ORDER]))
             exclude = _Cfg(TomlList([]))
-            sort_module = _Cfg(True)
-            respect_dependencies = _Cfg(True)
+            # confkit takes the default value positionally; there is no keyword form.
+            sort_module = _Cfg(True)  # noqa: FBT003
+            respect_dependencies = _Cfg(True)  # noqa: FBT003
             groups = _Cfg(GroupTable([]))
 
     cfg = tool.funcsort
@@ -137,7 +139,7 @@ def _build_group(entry: dict[str, Any]) -> Group:
     )
 
 
-def _as_tokens(value: Any) -> list[str]:
+def _as_tokens(value: Any) -> list[str]:  # noqa: ANN401 - TOML scalar or list
     """Normalise a string-or-list config value into a list of strings."""
     if value is None:
         return []
@@ -153,7 +155,7 @@ def _parse_method_type_order(raw: list[str], path: Path) -> list[MethodKind]:
         return list(_DEFAULT_METHOD_TYPE_ORDER)
 
 
-def _parse_enum_set[E: StrEnum](value: Any, enum: type[E], default: frozenset[E] | None) -> frozenset[E] | None:
+def _parse_enum_set[E: StrEnum](value: Any, enum: type[E], default: frozenset[E] | None) -> frozenset[E] | None:  # noqa: ANN401
     """Parse a string/list config value into a frozenset of enum members.
 
     ``None`` or an ``"any"`` token resolves to ``default`` (typically "no filter").

@@ -17,9 +17,12 @@ goes in which slot", subject to:
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping, Sequence
 
 _NO_RELEASE = -1
 _NO_DEADLINE = float("inf")
@@ -46,6 +49,7 @@ class Statement:
         index: Position within the block body.
         provides: Names the statement binds.
         requires: Names the statement reads while executing.
+
     """
 
     index: int
@@ -62,6 +66,7 @@ class OrderingProblem:
         candidates: Movable statements, identified by their original index.
         slots: Ascending body indices the candidates may occupy.
         desired: Candidate indices in the order the grouping engine prefers.
+
     """
 
     anchors: tuple[Statement, ...]
@@ -81,6 +86,7 @@ class OrderingResult:
     Attributes:
         order: Candidate indices in the order they should fill the slots.
         outcome: Whether the desired order was kept, repaired, or abandoned.
+
     """
 
     order: tuple[int, ...]
@@ -122,6 +128,7 @@ def solve_order(problem: OrderingProblem) -> OrderingResult:
     Returns:
         The order to emit. On :attr:`OrderingOutcome.INFEASIBLE` the order is the block's
         original one, which is always safe because the input file already runs.
+
     """
     identity = tuple(statement.index for statement in sorted(problem.candidates, key=lambda s: s.index))
     constraints = _derive(problem)

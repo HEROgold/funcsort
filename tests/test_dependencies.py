@@ -54,7 +54,7 @@ def _order(text: str, *needles: str) -> list[int]:
 
 def _executes(source: str) -> None:
     """Execute ``source`` as a module, failing the test if it raises."""
-    exec(compile(source, "<sorted>", "exec"), {})  # noqa: S102 - the point is to run it
+    exec(compile(source, "<sorted>", "exec"), {})
 
 
 class TestDecoratorDependencies:
