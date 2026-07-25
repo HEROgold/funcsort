@@ -23,6 +23,12 @@ class _Cli:
     diff = Argument("diff", action=Actions.STORE_BOOL, default=False, help="Show a diff of the changes")
     recursive = Argument("recursive", action=Actions.STORE_BOOL, default=True, help="Recurse into directories")
     sort_module = Argument("sort-module", action=Actions.STORE_BOOL, default=True, help="Sort module-level functions")
+    respect_dependencies = Argument(
+        "respect-dependencies",
+        action=Actions.STORE_BOOL,
+        default=True,
+        help="Never move a definition above code that uses it at import time",
+    )
     exclude = Argument[list[str]](
         "exclude",
         action=Actions.APPEND,
@@ -36,10 +42,10 @@ class _Cli:
 del _Cli
 
 # STORE_BOOL registers a --flag/--no-flag pair without an explicit default, so pin the
-# real defaults here. sort_module defaults to None so the config value wins unless the
-# user passes the flag explicitly.
+# real defaults here. sort_module and respect_dependencies default to None so the config
+# value wins unless the user passes the flag explicitly.
 parser.description = "Sort class methods and module-level functions into configurable groups"
-parser.set_defaults(check=False, diff=False, recursive=True, sort_module=None)
+parser.set_defaults(check=False, diff=False, recursive=True, sort_module=None, respect_dependencies=None)
 parser.add_argument("paths", nargs="+", type=Path, help="Python files or directories to sort")
 
 
@@ -77,6 +83,7 @@ def main() -> int:
     settings = load_settings()
 
     sort_module = settings.sort_module if args.sort_module is None else args.sort_module
+    respect_dependencies = settings.respect_dependencies if args.respect_dependencies is None else args.respect_dependencies
     exclude_patterns = _resolve_exclude(settings, args.exclude)
 
     all_files: list[Path] = []
@@ -102,6 +109,7 @@ def main() -> int:
                 sort_module=sort_module,
                 check_only=args.check,
                 show_diff=args.diff,
+                respect_dependencies=respect_dependencies,
             )
         except Exception as e:  # noqa: BLE001 - report and continue across files
             logger.error(f"Error processing {file_path}: {e}")
