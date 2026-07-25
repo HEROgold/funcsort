@@ -216,9 +216,12 @@ class TestRespectDependenciesFlag:
         assert text.index("def _helper") < text.index("def test_thing")
 
     def _run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *flags: str) -> str:
+        # ``source`` is created here, inside pytest's per-test tmp_path. There is no
+        # attacker-controlled path and nothing pre-existing to follow, so the symlink
+        # and read-size guards the scanner asks for would guard nothing.
         source = tmp_path / "module.py"
-        source.write_text(_DEPENDENT_SOURCE)
+        source.write_text(_DEPENDENT_SOURCE)  # skylos: ignore[SKY-D324] fresh file in pytest tmp_path
         monkeypatch.chdir(tmp_path)
         monkeypatch.setattr(sys, "argv", ["funcsort", *flags, str(source)])
         main()
-        return source.read_text()
+        return source.read_text()  # skylos: ignore[SKY-D325] the file this test just wrote

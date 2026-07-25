@@ -137,8 +137,10 @@ def analyse(source: str, directory: Path) -> tuple[Report, ...]:
     if cached is not None:
         return cached
 
+    # ``directory`` is pytest's per-test tmp_path and the file is created here, so there
+    # is no pre-existing path to follow and nothing attacker-controlled to contain.
     path = directory / _MODULE_NAME
-    path.write_text(source, encoding="utf-8")
+    path.write_text(source, encoding="utf-8")  # skylos: ignore[SKY-D324] fresh file in pytest tmp_path
     reports = tuple(report for checker in CHECKERS if (report := checker.check(path)) is not None)
     _CACHE[source] = reports
     return reports
