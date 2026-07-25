@@ -1,0 +1,51 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+concurrency: test-${{ github.sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13", "3.14", "3.15"]
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache pytest results
+        id: cache-pytest
+        uses: actions/cache@v4
+        with:
+          path: .pytest_cache
+          key: ${{ runner.os }}-pytest-${{ matrix.python-version }}-${{ hashFiles('**/tests/**/*.py', 'src/**') }}
+
+      - name: Install uv
+        if: steps.cache-pytest.outputs.cache-hit != 'true'
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Set up Python ${{ matrix.python-version }}
+        if: steps.cache-pytest.outputs.cache-hit != 'true'
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        if: steps.cache-pytest.outputs.cache-hit != 'true'
+        run: uv sync --group dev
+
+      - name: Run tests
+        if: steps.cache-pytest.outputs.cache-hit != 'true'
+        # Avoid executing examples in CI; they could run untrusted code from PRs
+        run: uv run pytest . --ignore=tests/test_examples_run.py
