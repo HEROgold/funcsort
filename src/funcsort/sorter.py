@@ -14,6 +14,7 @@ order to them.
 from __future__ import annotations
 
 import difflib
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast, override
 

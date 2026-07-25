@@ -37,25 +37,23 @@ _DEFAULT_METHOD_TYPE_ORDER = (MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.
 
 @dataclass(frozen=True)
 class Settings:
-    """Resolved funcsort configuration that drives the sorter.
-
-    Attributes:
-        groups: Ordered groups; output order and membership rules for members.
-        method_type_order: Secondary ordering of method types within each group.
-        exclude: Glob patterns of files/directories to skip.
-        sort_module: Whether module-level functions are sorted.
-        respect_dependencies: Whether ordering keeps a definition ahead of anything that
-            reads it at import time (decorators, parameter defaults, assignment values).
-
-    """
+    """Resolved funcsort configuration that drives the sorter."""
 
     groups: list[Group]
+    """Ordered groups; output order and membership rules for members."""
     method_type_order: list[MethodKind] = field(
         default_factory=lambda: list(_DEFAULT_METHOD_TYPE_ORDER),
     )
+    """Secondary ordering of method types within each group."""
     exclude: tuple[str, ...] = ()
+    """Glob patterns of files/directories to skip."""
     sort_module: bool = True
+    """Whether module-level functions are sorted or not."""
     respect_dependencies: bool = True
+    """
+    Whether ordering keeps a definition ahead of anything that
+    reads it at import time (decorators, parameter defaults, assignment values).
+    """
 
 
 def load_settings() -> Settings:
