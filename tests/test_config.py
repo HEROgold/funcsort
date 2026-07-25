@@ -39,6 +39,7 @@ class TestDefaults:
         assert settings.method_type_order == [MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.STATIC]
         assert settings.exclude == ()
         assert settings.sort_module is True
+        assert settings.respect_dependencies is True
 
     def test_missing_tool_section(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _write(tmp_path, monkeypatch, "[project]\nname = 'test'\n")
@@ -123,6 +124,10 @@ class TestScalarSettings:
     def test_sort_module_toggle(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _write(tmp_path, monkeypatch, "[tool.funcsort]\nsort_module = false\n")
         assert load_settings().sort_module is False
+
+    def test_respect_dependencies_toggle(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _write(tmp_path, monkeypatch, "[tool.funcsort]\nrespect_dependencies = false\n")
+        assert load_settings().respect_dependencies is False
 
 
 class TestDiscovery:

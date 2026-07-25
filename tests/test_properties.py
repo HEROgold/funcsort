@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import keyword
+import re
 
 import libcst as cst
 from hypothesis import given
@@ -18,7 +19,7 @@ from funcsort.groups import (
     classify,
     default_groups,
 )
-from funcsort.sorter import sort_block
+from funcsort.sorter import MethodSorter, sort_block
 
 _PREFIXES = ["", "_", "__", "__dunder_"]
 _DECORATORS = ["", "@classmethod\n", "@staticmethod\n"]
@@ -48,6 +49,25 @@ def _identifiers(draw: st.DrawFn) -> str:
     return name
 
 
+@given(_identifiers())
+def test_default_matches_legacy_visibility(name: str) -> None:
+    """classify() under default groups agrees with the independent legacy cascade."""
+    member = Member(0, None, MemberKind.FUNCTION, name, MethodKind.INSTANCE, Scope.CLASS)
+    result = classify(member, default_groups())
+    assert result.group is not None
+    assert result.group.name == _legacy_visibility(name)
+
+
+@given(st.lists(_identifiers(), max_size=8))
+def test_default_membership_is_order_independent(names: list[str]) -> None:
+    """The default groups are mutually exclusive: reordering never changes membership."""
+    canonical = default_groups()
+    reordered = list(reversed(default_groups()))
+    for name in names:
+        member = Member(0, None, MemberKind.FUNCTION, name, MethodKind.INSTANCE, Scope.CLASS)
+        assert _group_name(member, canonical) == _group_name(member, reordered)
+
+
 @st.composite
 def _class_source(draw: st.DrawFn) -> str:
     """Generate a class body with a handful of uniquely-named (decorated) methods."""
@@ -62,36 +82,6 @@ def _class_source(draw: st.DrawFn) -> str:
         lines.append(f"    def {name}({arg}):")
         lines.append("        pass")
     return "\n".join(lines) + "\n"
-
-
-def _class_body(source: str) -> tuple[cst.ClassDef, cst.IndentedBlock]:
-    module = cst.parse_module(source)
-    class_def = module.body[0]
-    assert isinstance(class_def, cst.ClassDef)
-    assert isinstance(class_def.body, cst.IndentedBlock)
-    return class_def, class_def.body
-
-
-def _function_names(body: cst.IndentedBlock) -> list[str]:
-    return [item.name.value for item in body.body if isinstance(item, cst.FunctionDef)]
-
-
-def _group_name(member: Member, groups: list[Group]) -> str:
-    classification = classify(member, groups)
-    assert classification.group is not None
-    return classification.group.name
-
-
-def _method_names(source: str) -> list[str]:
-    _, body = _class_body(source)
-    return _function_names(body)
-
-
-def _sorted_names(source: str, groups: list[Group]) -> list[str]:
-    _, body = _class_body(source)
-    result = sort_block(list(body.body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
-    new_body = body.with_changes(body=result.new_body)
-    return _function_names(new_body)
 
 
 @given(_class_source())
@@ -131,20 +121,73 @@ def test_group_order_is_monotonic(source: str) -> None:
     assert ranks == sorted(ranks)
 
 
-@given(_identifiers())
-def test_default_matches_legacy_visibility(name: str) -> None:
-    """classify() under default groups agrees with the independent legacy cascade."""
-    member = Member(0, None, MemberKind.FUNCTION, name, MethodKind.INSTANCE, Scope.CLASS)
-    result = classify(member, default_groups())
-    assert result.group is not None
-    assert result.group.name == _legacy_visibility(name)
+def _class_body(source: str) -> tuple[cst.ClassDef, cst.IndentedBlock]:
+    module = cst.parse_module(source)
+    class_def = module.body[0]
+    assert isinstance(class_def, cst.ClassDef)
+    assert isinstance(class_def.body, cst.IndentedBlock)
+    return class_def, class_def.body
 
 
-@given(st.lists(_identifiers(), max_size=8))
-def test_default_membership_is_order_independent(names: list[str]) -> None:
-    """The default groups are mutually exclusive: reordering never changes membership."""
-    canonical = default_groups()
-    reordered = list(reversed(default_groups()))
-    for name in names:
-        member = Member(0, None, MemberKind.FUNCTION, name, MethodKind.INSTANCE, Scope.CLASS)
-        assert _group_name(member, canonical) == _group_name(member, reordered)
+def _function_names(body: cst.IndentedBlock) -> list[str]:
+    return [item.name.value for item in body.body if isinstance(item, cst.FunctionDef)]
+
+
+def _group_name(member: Member, groups: list[Group]) -> str:
+    classification = classify(member, groups)
+    assert classification.group is not None
+    return classification.group.name
+
+
+def _method_names(source: str) -> list[str]:
+    _, body = _class_body(source)
+    return _function_names(body)
+
+
+def _sorted_names(source: str, groups: list[Group]) -> list[str]:
+    _, body = _class_body(source)
+    result = sort_block(list(body.body), scope=Scope.CLASS, groups=groups, method_type_order=_DEFAULT_MTO)
+    new_body = body.with_changes(body=result.new_body)
+    return _function_names(new_body)
+
+
+@st.composite
+def _dependent_module_source(draw: st.DrawFn) -> str:
+    """Generate a module where some public functions read a protected helper eagerly."""
+    count = draw(st.integers(min_value=1, max_value=4))
+    lines = ["def _deco(fn):", "    return fn", ""]
+    for index in range(count):
+        lines += [f"def _p{index}():", "    return 1", ""]
+    for index in range(count):
+        if draw(st.booleans()):
+            lines.append(f"@_deco(_p{index}())")
+        lines += [f"def c{index}():", "    pass", ""]
+    return "\n".join(lines)
+
+
+@given(_dependent_module_source())
+def test_load_time_dependencies_are_preserved(source: str) -> None:
+    """Every generated definition still precedes the decorator that reads it."""
+    text = _sorted_module(source)
+    for consumer, provider in _dependencies(source):
+        assert text.index(f"def {provider}(") < text.index(f"@_deco({provider}())\ndef {consumer}(")
+
+
+@given(_dependent_module_source())
+def test_dependency_aware_sorting_is_idempotent(source: str) -> None:
+    """A dependency-repaired order must be a fixed point, or pre-commit would loop."""
+    once = _sorted_module(source)
+    assert _sorted_module(once) == once
+
+
+def _dependencies(source: str) -> list[tuple[str, str]]:
+    """Return the ``(consumer, provider)`` pairs the generated source depends on."""
+    pairs = re.findall(r"@_deco\((_p\d+)\(\)\)\ndef (c\d+)\(", source)
+    return [(consumer, provider) for provider, consumer in pairs]
+
+
+def _sorted_module(source: str) -> str:
+    """Sort ``source`` at module scope with the default groups and return the new code."""
+    module = cst.parse_module(source)
+    sorter = MethodSorter(default_groups(), _DEFAULT_MTO, sort_module=True)
+    return module.visit(sorter).code

@@ -12,6 +12,7 @@ control sorting at both **class and module** scope.
 ## Features
 
 - Generic, configuration-driven engine with a behaviour-preserving default
+- Dependency-safe: never moves a definition above code that reads it at import time
 - Define your own groups and ordering; match member names with regex
 - Sort both class methods **and** module-level functions
 - Optionally sort module-level assignments/constants by opting a group into them
@@ -55,6 +56,10 @@ method_type_order = ["instance", "class", "static"]
 
 # Sort module-level functions too (default: true)
 sort_module = true
+
+# Never move a definition above code that reads it at import time (default: true).
+# See "Dependency safety" below. Turning this off can produce a file that no longer imports.
+respect_dependencies = true
 
 # Exclude files/directories matching these glob patterns (optional)
 # exclude = ["tests/*", "migrations/*.py"]
@@ -158,6 +163,42 @@ Example order with default configuration:
 14. Private class methods
 15. Private static methods
 
+### Dependency Safety
+
+Group order is not the only thing that decides where a definition may go. Anything a
+statement reads *while it executes* must already be defined, so funcsort will not move a
+definition below code that depends on it:
+
+```python
+def _make_strategy():
+    ...
+
+@given(_make_strategy())      # runs at import time
+def test_thing(value):
+    ...
+```
+
+Here `test_thing` is public and `_make_strategy` is protected, so grouping alone would
+hoist the test above the helper and the file would raise `NameError` on import. funcsort
+keeps the helper first and sorts everything else normally — only the members actually
+involved in a dependency give up their preferred position.
+
+What counts as a load-time reference:
+
+| Eager (constrains ordering) | Lazy (does not) |
+| --- | --- |
+| Decorator expressions, including call arguments | Function and method bodies |
+| Parameter default values | Lambda bodies |
+| Assignment right-hand sides | String annotations (`"Foo"`) |
+| Class bases, keywords and class-body statements | `type X = ...` alias values |
+| Annotations, unless the module uses `from __future__ import annotations` | |
+
+Because bodies are lazy, mutually recursive functions still sort freely.
+
+If a block genuinely cannot be ordered safely, funcsort leaves that block untouched and
+warns rather than emitting code that does not run. Set `respect_dependencies = false`
+(or pass `--no-respect-dependencies`) to sort by group order alone.
+
 ### Skipping Sorting with `# nosort`
 
 You can prevent sorting at different levels using `# nosort` comments (case-insensitive):
@@ -236,6 +277,9 @@ funcsort --diff example.py
 
 # Sort class methods only, leaving module-level functions untouched
 funcsort --no-sort-module src/
+
+# Sort by group order alone, ignoring load-time dependencies (can break imports)
+funcsort --no-respect-dependencies src/
 
 # Combine flags
 funcsort --check --diff src/

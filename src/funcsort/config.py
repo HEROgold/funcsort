@@ -44,6 +44,8 @@ class Settings:
         method_type_order: Secondary ordering of method types within each group.
         exclude: Glob patterns of files/directories to skip.
         sort_module: Whether module-level functions are sorted.
+        respect_dependencies: Whether ordering keeps a definition ahead of anything that
+            reads it at import time (decorators, parameter defaults, assignment values).
     """
 
     groups: list[Group]
@@ -52,6 +54,7 @@ class Settings:
     )
     exclude: tuple[str, ...] = ()
     sort_module: bool = True
+    respect_dependencies: bool = True
 
 
 def load_settings() -> Settings:
@@ -77,6 +80,7 @@ def load_settings() -> Settings:
             method_type_order = _Cfg(TomlList([str(t) for t in _DEFAULT_METHOD_TYPE_ORDER]))
             exclude = _Cfg(TomlList([]))
             sort_module = _Cfg(True)
+            respect_dependencies = _Cfg(True)
             groups = _Cfg(GroupTable([]))
 
     cfg = tool.funcsort
@@ -85,6 +89,7 @@ def load_settings() -> Settings:
         method_type_order=_parse_method_type_order(cfg.method_type_order, path),
         exclude=tuple(cfg.exclude),
         sort_module=cfg.sort_module,
+        respect_dependencies=cfg.respect_dependencies,
     )
 
 
