@@ -2,7 +2,8 @@
 
 Reordering is only safe if every name a statement reads *while it executes* is already
 bound. These tests drive the whole pipeline — parse, classify, extract, solve, emit — and
-several of them execute the sorted output to prove it still imports.
+several of them hand the sorted output to :mod:`tests.importability`, which proves it
+still resolves every name without ever running it.
 """
 
 import re
@@ -14,6 +15,8 @@ import pytest
 
 from funcsort.groups import Group, MemberKind, compile_matcher, default_groups
 from funcsort.sorter import SortResult, sort_file
+
+from .importability import CHECKERS, assert_resolves
 
 
 def _sort(source: str, *, respect_dependencies: bool = True, groups: list[Group] | None = None) -> str:
@@ -52,11 +55,6 @@ def _order(text: str, *needles: str) -> list[int]:
     return positions
 
 
-def _executes(source: str) -> None:
-    """Execute ``source`` as a module, failing the test if it raises."""
-    exec(compile(source, "<sorted>", "exec"), {})
-
-
 class TestDecoratorDependencies:
     """The reported regression: a decorator argument referencing a later definition."""
 
@@ -85,7 +83,7 @@ class TestDecoratorDependencies:
         registrar, public = _order(_sort(source), "def _register", "def public")
         assert registrar < public
 
-    def test_sorted_output_still_imports(self) -> None:
+    def test_sorted_output_still_imports(self, tmp_path: Path) -> None:
         source = dedent("""
             def _make(value):
                 return lambda: value
@@ -97,7 +95,7 @@ class TestDecoratorDependencies:
             def public(callback=_make(1)):
                 return callback()
         """)
-        _executes(_sort(source))
+        assert_resolves(_sort(source), tmp_path)
 
 
 class TestArgumentAndAnnotationDependencies:
@@ -182,7 +180,7 @@ class TestLazyReferencesStillSort:
 class TestAnchorDependencies:
     """Immovable statements impose release times and deadlines."""
 
-    def test_deadline_keeps_definition_above_its_consumer(self) -> None:
+    def test_deadline_keeps_definition_above_its_consumer(self, tmp_path: Path) -> None:
         source = dedent("""
             def _make():
                 return 1
@@ -196,9 +194,9 @@ class TestAnchorDependencies:
         text = _sort(source)
         make, registry = _order(text, "def _make", "REGISTRY = _make()")
         assert make < registry
-        _executes(text)
+        assert_resolves(text, tmp_path)
 
-    def test_release_time_keeps_reader_below_its_anchor(self) -> None:
+    def test_release_time_keeps_reader_below_its_anchor(self, tmp_path: Path) -> None:
         source = dedent("""
             def _first():
                 pass
@@ -213,9 +211,9 @@ class TestAnchorDependencies:
         text = _sort(source)
         const, public = _order(text, "CONST = 5", "def public")
         assert const < public
-        _executes(text)
+        assert_resolves(text, tmp_path)
 
-    def test_class_body_reference_is_eager(self) -> None:
+    def test_class_body_reference_is_eager(self, tmp_path: Path) -> None:
         source = dedent("""
             def _helper():
                 return 1
@@ -229,13 +227,13 @@ class TestAnchorDependencies:
         text = _sort(source)
         helper, holder = _order(text, "def _helper", "class Holder")
         assert helper < holder
-        _executes(text)
+        assert_resolves(text, tmp_path)
 
 
 class TestClassScope:
     """Class bodies execute top to bottom, so the same rules apply inside them."""
 
-    def test_property_assignment_keeps_getter_first(self) -> None:
+    def test_property_assignment_keeps_getter_first(self, tmp_path: Path) -> None:
         source = dedent("""
             class Example:
                 def _getter(self):
@@ -249,7 +247,7 @@ class TestClassScope:
         text = _sort(source)
         getter, value = _order(text, "def _getter", "value = property(_getter)")
         assert getter < value
-        _executes(text)
+        assert_resolves(text, tmp_path)
 
     def test_sortable_class_attribute_stays_after_its_source(self) -> None:
         groups = [
@@ -344,7 +342,7 @@ class TestIdempotency:
 class TestSelfHosting:
     """funcsort must be stable on its own property-test module — the reported bug."""
 
-    def test_property_test_module_survives_sorting(self) -> None:
+    def test_property_test_module_survives_sorting(self, tmp_path: Path) -> None:
         source = (Path(__file__).parent / "test_properties.py").read_text(encoding="utf-8")
         text = _sort(source)
 
@@ -354,4 +352,23 @@ class TestSelfHosting:
             first_use = min(match.start() for match in re.finditer(rf"@given\(.*{helper}\(", text))
             assert definition < first_use, f"{helper} was hoisted below its @given use"
 
-        _executes(source)
+        assert_resolves(text, tmp_path)
+
+
+class TestTheCheckerItself:
+    """The name checker has to be able to fail, or every assertion above is vacuous."""
+
+    def test_use_before_definition_is_rejected(self, tmp_path: Path) -> None:
+        unsafe = dedent("""
+            VALUE = _make()
+
+
+            def _make():
+                return 1
+        """)
+        with pytest.raises(AssertionError, match="does not resolve"):
+            assert_resolves(unsafe, tmp_path)
+
+    def test_an_order_aware_checker_is_installed(self) -> None:
+        installed = [checker for checker in CHECKERS if checker.order_aware and checker.executable is not None]
+        assert installed, "no order-aware checker is installed, so use-before-definition would go unnoticed"

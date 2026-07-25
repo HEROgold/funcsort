@@ -124,20 +124,9 @@ def sort_block(
 ) -> BlockSortResult:
     """Reorder the sortable members of a block, anchoring everything else in place.
 
-    Args:
-        body: The block's statements.
-        scope: Whether this is a class body or the module body.
-        groups: Ordered groups deciding placement.
-        method_type_order: Secondary ordering within each group.
-        respect_dependencies: Whether to keep definitions ahead of the code that reads
-            them at load time. Disabling this restores pure group ordering, which can
-            emit a file that no longer imports.
-        lazy_annotations: Whether the module defers annotations (PEP 563), in which case
-            annotation references impose no ordering.
-
-    Returns:
-        A :class:`BlockSortResult` with the new body and how ordering was resolved.
-
+    Disabling ``respect_dependencies`` restores pure group ordering, which can emit a file
+    that no longer imports. ``lazy_annotations`` records that the module defers annotations
+    (PEP 563), in which case annotation references impose no ordering at all.
     """
     items = list(body)
     plan = _plan_block(
@@ -162,24 +151,21 @@ class _BlockPlan:
     Splitting this out is what makes iterating to a fixed point cheap: the libcst work
     (classification and name-flow extraction) happens once, and only the pure bucketing
     and constraint solving repeat.
-
-    Attributes:
-        members: Candidate body index to its classified member.
-        bucket_keys: Candidate body index to its ``(group name, method type)`` bucket;
-            candidates that matched no group are absent.
-        unmatched: Members that matched no group, in body order.
-        problem: The dependency constraints, carrying the candidate slots.
-        groups: Ordered groups, giving the bucket emission order.
-        method_type_order: Secondary ordering, already expanded to cover every kind.
-
     """
 
     members: Mapping[int, Member]
+    """Candidate body index to its classified member."""
+
     bucket_keys: Mapping[int, tuple[str, MethodKind]]
+    """Candidate body index to its bucket; candidates that matched no group are absent."""
+
     unmatched: tuple[Member, ...]
     problem: OrderingProblem
     groups: list[Group]
+    """Ordered groups, giving the bucket emission order."""
+
     method_type_order: list[MethodKind]
+    """Secondary ordering, already expanded to cover every kind."""
 
     @property
     def identity(self) -> tuple[int, ...]:
@@ -226,19 +212,9 @@ def sort_file(
 ) -> SortResult:
     """Sort the methods (and optionally module functions) of a Python file.
 
-    Args:
-        file_path: The Python file to sort.
-        groups: Ordered groups; defaults to the built-in groups when omitted.
-        method_type_order: Secondary ordering; defaults to instance/class/static.
-        sort_module: Whether to sort module-level functions.
-        check_only: If True, do not write changes back to disk.
-        show_diff: If True, print a unified diff of the changes.
-        respect_dependencies: Whether to keep definitions ahead of the code that reads
-            them at load time. Disabling this can produce a file that no longer imports.
-
-    Returns:
-        A :class:`SortResult` describing whether the file changed and any unmatched members.
-
+    Omitting ``groups`` or ``method_type_order`` falls back to the built-in defaults.
+    Under ``check_only`` nothing is written back to disk. Disabling
+    ``respect_dependencies`` can produce a file that no longer imports.
     """
     resolved_groups = groups if groups is not None else default_groups()
     resolved_order = method_type_order if method_type_order is not None else list(_DEFAULT_METHOD_TYPE_ORDER)
