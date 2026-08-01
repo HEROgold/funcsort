@@ -31,7 +31,7 @@ jobs:
       - name: Determine version bump
         id: detect-bump
         env:
-          LABELS: ${{ github.event.pull_request.labels.*.name }}
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
         run: |
           # Check PR labels to determine bump type
           if echo "$LABELS" | grep -q "Major"; then
