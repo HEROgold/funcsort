@@ -66,6 +66,44 @@ _EXPECTED = dedent("""\
 """)
 
 
+_DEPS_INPUT = dedent("""\
+    import functools
+
+    def _register(fn):
+        return fn
+
+    def zebra():
+        pass
+
+    @_register
+    def alpha():
+        pass
+
+    def _later():
+        pass
+""")
+
+# Both `zebra` and `alpha` are public and want to lead. `zebra` does. `alpha` cannot,
+# because its decorator reads `_register` at import time, so `_register` keeps its place
+# ahead of it -- exactly one member gives up its preferred position, not the whole block.
+_DEPS_EXPECTED = dedent("""\
+    import functools
+
+    def zebra():
+        pass
+
+    def _register(fn):
+        return fn
+
+    @_register
+    def alpha():
+        pass
+
+    def _later():
+        pass
+""")
+
+
 def test_default_config_golden_output() -> None:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
         f.write(_INPUT)
@@ -86,5 +124,29 @@ def test_default_config_is_idempotent_on_golden() -> None:
         result = sort_file(temp_path, groups=default_groups(), sort_module=False)
         assert result.modified is False
         assert temp_path.read_text() == _EXPECTED
+    finally:
+        temp_path.unlink()
+
+
+def test_dependency_aware_golden_output() -> None:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(_DEPS_INPUT)
+        temp_path = Path(f.name)
+    try:
+        result = sort_file(temp_path, groups=default_groups(), sort_module=True)
+        assert result.modified is True
+        assert temp_path.read_text() == _DEPS_EXPECTED
+    finally:
+        temp_path.unlink()
+
+
+def test_dependency_aware_golden_is_idempotent() -> None:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+        f.write(_DEPS_EXPECTED)
+        temp_path = Path(f.name)
+    try:
+        result = sort_file(temp_path, groups=default_groups(), sort_module=True)
+        assert result.modified is False
+        assert temp_path.read_text() == _DEPS_EXPECTED
     finally:
         temp_path.unlink()

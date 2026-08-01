@@ -37,21 +37,23 @@ _DEFAULT_METHOD_TYPE_ORDER = (MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.
 
 @dataclass(frozen=True)
 class Settings:
-    """Resolved funcsort configuration that drives the sorter.
-
-    Attributes:
-        groups: Ordered groups; output order and membership rules for members.
-        method_type_order: Secondary ordering of method types within each group.
-        exclude: Glob patterns of files/directories to skip.
-        sort_module: Whether module-level functions are sorted.
-    """
+    """Resolved funcsort configuration that drives the sorter."""
 
     groups: list[Group]
+    """Ordered groups; output order and membership rules for members."""
     method_type_order: list[MethodKind] = field(
         default_factory=lambda: list(_DEFAULT_METHOD_TYPE_ORDER),
     )
+    """Secondary ordering of method types within each group."""
     exclude: tuple[str, ...] = ()
+    """Glob patterns of files/directories to skip."""
     sort_module: bool = True
+    """Whether module-level functions are sorted or not."""
+    respect_dependencies: bool = True
+    """
+    Whether ordering keeps a definition ahead of anything that
+    reads it at import time (decorators, parameter defaults, assignment values).
+    """
 
 
 def load_settings() -> Settings:
@@ -72,11 +74,13 @@ def load_settings() -> Settings:
     # confkit derives the section name from the class qualname, so the nested classes
     # must be named ``tool`` -> ``funcsort`` to address ``[tool.funcsort]``. This class
     # is the single definition of the config shape.
-    class tool:
-        class funcsort:
+    class tool:  # noqa: N801 - intentional: forms the "tool.funcsort" section path
+        class funcsort:  # noqa: N801
             method_type_order = _Cfg(TomlList([str(t) for t in _DEFAULT_METHOD_TYPE_ORDER]))
             exclude = _Cfg(TomlList([]))
-            sort_module = _Cfg(True)
+            # confkit takes the default value positionally; there is no keyword form.
+            sort_module = _Cfg(True)  # noqa: FBT003
+            respect_dependencies = _Cfg(True)  # noqa: FBT003
             groups = _Cfg(GroupTable([]))
 
     cfg = tool.funcsort
@@ -85,6 +89,7 @@ def load_settings() -> Settings:
         method_type_order=_parse_method_type_order(cfg.method_type_order, path),
         exclude=tuple(cfg.exclude),
         sort_module=cfg.sort_module,
+        respect_dependencies=cfg.respect_dependencies,
     )
 
 
@@ -132,7 +137,7 @@ def _build_group(entry: dict[str, Any]) -> Group:
     )
 
 
-def _as_tokens(value: Any) -> list[str]:
+def _as_tokens(value: Any) -> list[str]:  # noqa: ANN401 - TOML scalar or list
     """Normalise a string-or-list config value into a list of strings."""
     if value is None:
         return []
@@ -148,7 +153,7 @@ def _parse_method_type_order(raw: list[str], path: Path) -> list[MethodKind]:
         return list(_DEFAULT_METHOD_TYPE_ORDER)
 
 
-def _parse_enum_set[E: StrEnum](value: Any, enum: type[E], default: frozenset[E] | None) -> frozenset[E] | None:
+def _parse_enum_set[E: StrEnum](value: Any, enum: type[E], default: frozenset[E] | None) -> frozenset[E] | None:  # noqa: ANN401
     """Parse a string/list config value into a frozenset of enum members.
 
     ``None`` or an ``"any"`` token resolves to ``default`` (typically "no filter").

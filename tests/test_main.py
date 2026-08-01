@@ -1,8 +1,11 @@
 """Tests for main CLI functionality."""
 
+import sys
 from pathlib import Path
 
-from funcsort.main import collect_python_files
+import pytest
+
+from funcsort.main import collect_python_files, main
 
 
 class TestCollectPythonFiles:
@@ -179,3 +182,46 @@ class TestCollectPythonFiles:
         assert len(result) == 2
         assert any(f.name == "main.py" for f in result)
         assert any(f.name == "app.py" for f in result)
+
+
+_DEPENDENT_SOURCE = """def _helper():
+    return 1
+
+
+@deco(_helper())
+def test_thing():
+    pass
+"""
+
+
+class TestRespectDependenciesFlag:
+    """The CLI flag reaches sort_file, and the config value wins when it is absent."""
+
+    def test_enabled_by_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        text = self._run(tmp_path, monkeypatch)
+        assert text.index("def _helper") < text.index("def test_thing")
+
+    def test_disabled_by_flag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        text = self._run(tmp_path, monkeypatch, "--no-respect-dependencies")
+        assert text.index("def test_thing") < text.index("def _helper")
+
+    def test_config_wins_when_flag_absent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        (tmp_path / "funcsort.toml").write_text("[tool.funcsort]\nrespect_dependencies = false\n")
+        text = self._run(tmp_path, monkeypatch)
+        assert text.index("def test_thing") < text.index("def _helper")
+
+    def test_flag_overrides_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        (tmp_path / "funcsort.toml").write_text("[tool.funcsort]\nrespect_dependencies = false\n")
+        text = self._run(tmp_path, monkeypatch, "--respect-dependencies")
+        assert text.index("def _helper") < text.index("def test_thing")
+
+    def _run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *flags: str) -> str:
+        # ``source`` is created here, inside pytest's per-test tmp_path. There is no
+        # attacker-controlled path and nothing pre-existing to follow, so the symlink
+        # and read-size guards the scanner asks for would guard nothing.
+        source = tmp_path / "module.py"
+        source.write_text(_DEPENDENT_SOURCE)  # skylos: ignore[SKY-D324] fresh file in pytest tmp_path
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(sys, "argv", ["funcsort", *flags, str(source)])
+        main()
+        return source.read_text()  # skylos: ignore[SKY-D325] the file this test just wrote

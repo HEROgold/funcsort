@@ -1,9 +1,28 @@
-include = ["ALL"]
 unsafe-fixes = true
 target-version = "py312"
 line-length = 128
 
+[lint]
+select = ["ALL"]
+ignore = [
+  # Mutually exclusive with the rule below it; the project follows the second of each pair.
+  "D203",   # incompatible with D211 (no blank line before class docstring)
+  "D213",   # incompatible with D212 (summary starts on the first line)
+  "CPY001", # the project ships a LICENSE; per-file copyright headers are not the convention
+  "COM812", # ruff warns this conflicts with the formatter
+]
+
+[lint.pylint]
+# sort_file/sort_block expose one parameter per configurable behaviour; splitting them
+# into a settings object would only move the argument list somewhere else.
+max-args = 8
+
 [lint.per-file-ignores]
 "tests/**/*.py" = [
-  "S101", # Allow assert in tests
+  "S101",    # assert is the point of a test
+  "D100",    # test module/class/function names describe themselves
+  "D101",
+  "D102",
+  "D103",
+  "PLR2004", # magic values in assertions are clearer inline
 ]

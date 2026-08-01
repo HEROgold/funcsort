@@ -5,11 +5,19 @@ build-backend = "hatchling.build"
 [dependency-groups]
 dev = [
   "hypothesis>=6.161.2",
+  "mypy>=2.3.0",
   "pyrefly>=1.1.1",
+  "pyright>=1.1.411",
   "pytest>=9.1.1",
   "pytest-cov>=7.1.0",
   "ruff>=0.16.0",
   "ty>=0.0.63",
+  "zuban>=0.9.0",
+]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.7",
+    "mkdocstrings[python]>=1.0.6",
 ]
 
 [project]
@@ -52,3 +60,20 @@ funcsort = "funcsort.main:main"
 Homepage = "https://github.com/HEROgold/funcsort"
 Repository = "https://github.com/HEROgold/funcsort"
 Issues = "https://github.com/HEROgold/funcsort/issues"
+
+[tool.skylos]
+# SKY-D223 "undeclared dependency": Skylos reads declared dependencies from
+# [project.dependencies] and [project.optional-dependencies] only. It does not
+# understand PEP 735 [dependency-groups], so pytest and hypothesis — which are
+# declared in the `dev` group above — are reported as undeclared imports.
+#
+# SKY-Q702 "low cohesion": the rule scores classes with LCOM4. A pytest test class
+# shares no instance state by design, so LCOM4 simply equals its test count and every
+# test class in the repository trips it; the suggested remedy is one class per test
+# method, which would replace the behavioural grouping the suite is organised around.
+ignore = ["SKY-D223", "SKY-Q702"]
+
+[tool.pyrefly]
+# The tests are a package of their own (``tests/__init__.py``); without this pyrefly
+# infers ``src`` as the only import root and cannot resolve intra-test imports.
+search-path = ["src", "."]
