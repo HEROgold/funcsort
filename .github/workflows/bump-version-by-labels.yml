@@ -35,11 +35,11 @@ jobs:
         run: |
           # Check PR labels to determine bump type
           if echo "$LABELS" | grep -q "Major"; then
-            echo "bump_type=major" >> $env:GITHUB_OUTPUT
+            echo "bump_type=Major" >> $env:GITHUB_OUTPUT
           elif echo "$LABELS" | grep -q "Minor"; then
-            echo "bump_type=minor" >> $env:GITHUB_OUTPUT
+            echo "bump_type=Minor" >> $env:GITHUB_OUTPUT
           elif echo "$LABELS" | grep -q "Patch"; then
-            echo "bump_type=patch" >> $env:GITHUB_OUTPUT
+            echo "bump_type=Patch" >> $env:GITHUB_OUTPUT
           else
             echo "bump_type=" >> $env:GITHUB_OUTPUT
           fi
