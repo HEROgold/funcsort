@@ -35,23 +35,23 @@ jobs:
         run: |
           # Check PR labels to determine bump type
           if echo "$LABELS" | grep -q "Major"; then
-            echo "bump_type=Major" >> $env:GITHUB_OUTPUT
+            echo "bump_type=major" >> $GITHUB_OUTPUT
           elif echo "$LABELS" | grep -q "Minor"; then
-            echo "bump_type=Minor" >> $env:GITHUB_OUTPUT
+            echo "bump_type=minor" >> $GITHUB_OUTPUT
           elif echo "$LABELS" | grep -q "Patch"; then
-            echo "bump_type=Patch" >> $env:GITHUB_OUTPUT
+            echo "bump_type=patch" >> $GITHUB_OUTPUT
           else
-            echo "bump_type=" >> $env:GITHUB_OUTPUT
+            echo "bump_type=" >> $GITHUB_OUTPUT
           fi
 
       - name: Bump Version
         if: steps.detect-bump.outputs.bump_type != ''
         id: bump-version
         run: |
-          uv run bump-my-version bump ${{ steps.detect-bump.outputs.bump_type }}
+          uv version --bump ${{ steps.detect-bump.outputs.bump_type }}
           $NEW_VERSION = uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
-          echo "version-bumped=true" >> $env:GITHUB_OUTPUT
-          echo "new-version=$NEW_VERSION" >> $env:GITHUB_OUTPUT
+          echo "version-bumped=true" >> $GITHUB_OUTPUT
+          echo "new-version=$NEW_VERSION" >> $GITHUB_OUTPUT
 
       - name: Create version bump PR
         if: steps.bump-version.outputs.version-bumped == 'true'
