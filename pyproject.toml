@@ -22,7 +22,7 @@ docs = [
 
 [project]
 name = "funcsort"
-version = "0.2.0"
+version = "1.0.0"
 description = "Sort class methods and module-level functions into configurable, regex-matched groups"
 authors = [{ name = "HEROgold" }]
 readme = "README.md"
