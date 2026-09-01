@@ -34,11 +34,11 @@ jobs:
           LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
         run: |
           # Check PR labels to determine bump type
-          if echo "$LABELS" | grep -q "Major"; then
+          if echo "$LABELS" | grep -iq "Major"; then
             echo "bump_type=major" >> $GITHUB_OUTPUT
-          elif echo "$LABELS" | grep -q "Minor"; then
+          elif echo "$LABELS" | grep -iq "Minor"; then
             echo "bump_type=minor" >> $GITHUB_OUTPUT
-          elif echo "$LABELS" | grep -q "Patch"; then
+          elif echo "$LABELS" | grep -iq "Patch"; then
             echo "bump_type=patch" >> $GITHUB_OUTPUT
           else
             echo "bump_type=" >> $GITHUB_OUTPUT
