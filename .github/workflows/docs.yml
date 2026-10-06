@@ -40,11 +40,11 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Build docs (mkdocs)
+      - name: Build docs (zensical)
         if: github.event.action != 'closed'
         run: |
           uv sync --group docs
-          uv run mkdocs build -d site
+          uv run zensical build
 
       # Publish the site to the root of gh-pages on pushes to main, keeping PR previews intact.
       # Gate on the event too: `closed` pull_request events report the base branch as github.ref.
