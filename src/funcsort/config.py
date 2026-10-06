@@ -5,92 +5,110 @@ as a fallback, the ``[tool.funcsort]`` table of ``pyproject.toml``. Both files u
 same ``[tool.funcsort]`` section and keys. The values are resolved into a single
 immutable :class:`Settings` value object that drives the engine.
 
-The confkit container class ``tool.funcsort`` is the single source of truth for the
-config shape; values are read directly off it (no parallel schema definition).
+Every config value is declared exactly once, as a :class:`Settings` field created with
+:func:`option`. The field carries its confkit data type; :func:`load_settings` turns the
+fields into confkit ``Config`` descriptors on a ``tool.funcsort`` container, so adding a
+value never means touching a parallel schema, a docstring or the loader::
+
+    sort_module: bool = option(True)
+
+followed by its attribute docstring. Only a matching command-line flag, if the value
+should have one, lives elsewhere (:mod:`funcsort.main`).
 """
 
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass, field
-from enum import StrEnum
+from copy import copy
+from dataclasses import Field, dataclass, field, fields
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, overload
 
-from confkit import Config
-
-from funcsort.groups import (
-    Group,
-    MemberKind,
-    MethodKind,
-    Scope,
-    compile_matcher,
-    default_groups,
-)
+from confkit import BaseDataType, Config
 
 from . import logger
-from .config_types import GroupTable, TomlList
+from .config_types import GroupList, MethodTypeOrder, StringTuple
+from .groups import FunctionPlacement
+
+if TYPE_CHECKING:
+    from .groups import Group, MethodKind
 
 _CONFIG_FILENAMES = ("funcsort.toml", "pyproject.toml")
-_DEFAULT_METHOD_TYPE_ORDER = (MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.STATIC)
+_SECTION = "tool.funcsort"
+_DATA_TYPE = "confkit_data_type"
+"""Field-metadata key holding the confkit data type an :func:`option` reads with."""
+
+
+@overload
+def option[T](default: BaseDataType[T]) -> T: ...
+@overload
+def option[T](default: T) -> T: ...
+def option[T](default: T | BaseDataType[T]) -> T:
+    """Declare one config value as a :class:`Settings` field.
+
+    ``default`` is anything confkit's ``Config`` accepts: a plain value (``True``, a
+    StrEnum member, ...) or a custom :class:`~confkit.BaseDataType`. The field's own
+    default is what confkit reads back for an unset option, so a missing config file and
+    an empty ``[tool.funcsort]`` table resolve identically.
+    """
+    data_type = BaseDataType.cast(default)
+    return field(default_factory=lambda: _unset_value(data_type), metadata={_DATA_TYPE: data_type})
 
 
 @dataclass(frozen=True)
 class Settings:
-    """Resolved funcsort configuration that drives the sorter."""
+    """Resolved funcsort configuration that drives the sorter.
 
-    groups: list[Group]
+    Each field is read from the ``[tool.funcsort]`` key of the same name.
+    """
+
+    groups: list[Group] = option(GroupList())
     """Ordered groups; output order and membership rules for members."""
-    method_type_order: list[MethodKind] = field(
-        default_factory=lambda: list(_DEFAULT_METHOD_TYPE_ORDER),
-    )
+    method_type_order: list[MethodKind] = option(MethodTypeOrder())
     """Secondary ordering of method types within each group."""
-    exclude: tuple[str, ...] = ()
+    exclude: tuple[str, ...] = option(StringTuple())
     """Glob patterns of files/directories to skip."""
-    sort_module: bool = True
+    sort_module: bool = option(True)
     """Whether module-level functions are sorted or not."""
-    respect_dependencies: bool = True
+    respect_dependencies: bool = option(True)
     """
     Whether ordering keeps a definition ahead of anything that
     reads it at import time (decorators, parameter defaults, assignment values).
     """
+    function_placement: FunctionPlacement = option(FunctionPlacement.AFTER_CLASSES)
+    """Where module-level functions go relative to module-level classes."""
 
 
 def load_settings() -> Settings:
     """Load and resolve configuration into a :class:`Settings`.
 
-    Falls back to built-in defaults when no config file or section is present, or when
-    the configured groups are invalid.
+    Falls back to built-in defaults when no config file or section is present. An
+    invalid value is reported and replaced by that option's default.
     """
     path = find_config_file()
     if path is None:
-        return Settings(groups=default_groups())
+        return Settings()
 
     class _Cfg(Config[Any]): ...
 
     _Cfg.write_on_edit = False
     _Cfg.set_file(path)
 
-    # confkit derives the section name from the class qualname, so the nested classes
-    # must be named ``tool`` -> ``funcsort`` to address ``[tool.funcsort]``. This class
-    # is the single definition of the config shape.
-    class tool:  # noqa: N801 - intentional: forms the "tool.funcsort" section path
-        class funcsort:  # noqa: N801
-            method_type_order = _Cfg(TomlList([str(t) for t in _DEFAULT_METHOD_TYPE_ORDER]))
-            exclude = _Cfg(TomlList([]))
-            # confkit takes the default value positionally; there is no keyword form.
-            sort_module = _Cfg(True)  # noqa: FBT003
-            respect_dependencies = _Cfg(True)  # noqa: FBT003
-            groups = _Cfg(GroupTable([]))
-
-    cfg = tool.funcsort
-    return Settings(
-        groups=_build_groups(cfg.groups, path) if cfg.groups else default_groups(),
-        method_type_order=_parse_method_type_order(cfg.method_type_order, path),
-        exclude=tuple(cfg.exclude),
-        sort_module=cfg.sort_module,
-        respect_dependencies=cfg.respect_dependencies,
+    # confkit derives the section from the container's qualname, so naming it
+    # ``tool.funcsort`` addresses ``[tool.funcsort]``. Each descriptor gets its own copy
+    # of the data type: confkit stores the last read value on it.
+    options = fields(Settings)
+    container = type(
+        "funcsort",
+        (),
+        {"__qualname__": _SECTION, **{entry.name: _Cfg(copy(_data_type(entry))) for entry in options}},
     )
+    values: dict[str, Any] = {}
+    for entry in options:
+        try:
+            values[entry.name] = getattr(container, entry.name)
+        except ValueError as exc:
+            logger.warning(f"Invalid {entry.name} in {path}: {exc}. Using the default.")
+    return Settings(**values)
 
 
 def find_config_file() -> Path | None:
@@ -104,61 +122,11 @@ def find_config_file() -> Path | None:
     return None
 
 
-def _build_groups(raw_groups: list[dict[str, Any]], path: Path) -> list[Group]:
-    """Build groups from a user-defined ``[[tool.funcsort.groups]]`` block.
-
-    On any malformed entry, warn and fall back to the built-in default groups so a
-    broken config never silently drops members.
-    """
-    try:
-        return [_build_group(entry) for entry in raw_groups]
-    except (KeyError, ValueError, TypeError, re.error) as exc:
-        logger.warning(f"Invalid groups in {path}: {exc}. Using default groups.")
-        return default_groups()
+def _data_type(entry: Field[Any]) -> BaseDataType[Any]:
+    """Return the confkit data type an :func:`option` field was declared with."""
+    return entry.metadata[_DATA_TYPE]
 
 
-def _build_group(entry: dict[str, Any]) -> Group:
-    """Build a single :class:`Group` from a raw config table."""
-    name = entry["name"]
-    tokens = _as_tokens(entry["match"])
-    if not tokens:
-        msg = f"group {name!r} has an empty 'match'"
-        raise ValueError(msg)
-    decorator_tokens = _as_tokens(entry.get("decorator"))
-    decorators = tuple(compile_matcher(token) for token in decorator_tokens) if decorator_tokens else None
-    default_kinds = frozenset({MemberKind.FUNCTION})
-    return Group(
-        name=name,
-        matchers=tuple(compile_matcher(token) for token in tokens),
-        kinds=_parse_enum_set(entry.get("kind"), MemberKind, default_kinds) or default_kinds,
-        types=_parse_enum_set(entry.get("type"), MethodKind, None),
-        scopes=_parse_enum_set(entry.get("scope"), Scope, None),
-        decorators=decorators,
-    )
-
-
-def _as_tokens(value: Any) -> list[str]:  # noqa: ANN401 - TOML scalar or list
-    """Normalise a string-or-list config value into a list of strings."""
-    if value is None:
-        return []
-    return [value] if isinstance(value, str) else list(value)
-
-
-def _parse_method_type_order(raw: list[str], path: Path) -> list[MethodKind]:
-    """Parse and validate the method type order, falling back to the default."""
-    try:
-        return [MethodKind(value) for value in raw]
-    except ValueError:
-        logger.warning(f"Invalid method_type_order values in {path}. Using default.")
-        return list(_DEFAULT_METHOD_TYPE_ORDER)
-
-
-def _parse_enum_set[E: StrEnum](value: Any, enum: type[E], default: frozenset[E] | None) -> frozenset[E] | None:  # noqa: ANN401
-    """Parse a string/list config value into a frozenset of enum members.
-
-    ``None`` or an ``"any"`` token resolves to ``default`` (typically "no filter").
-    """
-    if value is None:
-        return default
-    members = {enum(item) for item in _as_tokens(value) if item != "any"}  # zuban:ignore[misc]
-    return frozenset(members) if members else default
+def _unset_value[T](data_type: BaseDataType[T]) -> T:
+    """Return what confkit reads back for an option that is absent from the file."""
+    return data_type.convert(str(data_type))

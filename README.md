@@ -57,6 +57,10 @@ sort_module = true
 # https://herogold.github.io/funcsort/dependency-safety/
 respect_dependencies = true
 
+# Where module-level functions go relative to module-level classes
+# Options: "after-classes", "before-classes", "interleaved"   Default: "after-classes"
+function_placement = "after-classes"
+
 # Exclude files/directories matching these glob patterns (optional)
 # exclude = ["tests/*", "migrations/*.py"]
 ```
@@ -102,6 +106,9 @@ funcsort --no-sort-module src/
 
 # Sort by group order alone, ignoring load-time dependencies (can break imports)
 funcsort --no-respect-dependencies src/
+
+# Put module-level functions above classes instead of below them
+funcsort --function-placement before-classes src/
 
 # Exclude specific files or directories
 funcsort --exclude "tests/*" --exclude "migrations/*.py" src/

@@ -17,11 +17,12 @@ import difflib
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
-from typing import TYPE_CHECKING, cast, override
+from typing import TYPE_CHECKING, override
 
 import libcst as cst
 
 from funcsort.groups import (
+    FunctionPlacement,
     Group,
     Member,
     MemberKind,
@@ -123,12 +124,15 @@ def sort_block(
     method_type_order: list[MethodKind],
     respect_dependencies: bool = True,
     lazy_annotations: bool = False,
+    function_placement: FunctionPlacement = FunctionPlacement.AFTER_CLASSES,
 ) -> BlockSortResult:
     """Reorder the sortable members of a block, anchoring everything else in place.
 
     Disabling ``respect_dependencies`` restores pure group ordering, which can emit a file
     that no longer imports. ``lazy_annotations`` records that the module defers annotations
     (PEP 563), in which case annotation references impose no ordering at all.
+    ``function_placement`` decides, at module scope, whether classes move so the functions
+    stay together on one side of them.
     """
     items = list(body)
     plan = _plan_block(
@@ -138,6 +142,7 @@ def sort_block(
         method_type_order=method_type_order,
         respect_dependencies=respect_dependencies,
         lazy_annotations=lazy_annotations,
+        function_placement=function_placement,
     )
     if plan is None:
         return BlockSortResult(items, modified=False, unmatched=())
@@ -169,6 +174,14 @@ class _BlockPlan:
     method_type_order: list[MethodKind]
     """Secondary ordering, already expanded to cover every kind."""
 
+    classes: frozenset[int]
+    """Candidate body indices that are classes, moved as one block by the placement."""
+
+    class_prerequisites: frozenset[int]
+    """Non-class candidates the classes read at load time, directly or transitively."""
+
+    function_placement: FunctionPlacement
+
     @property
     def identity(self) -> tuple[int, ...]:
         """Return the candidates in their original order (always a safe ordering)."""
@@ -179,7 +192,29 @@ class _BlockPlan:
         return solve_order(self.problem.with_desired(self._desired(order)))
 
     def _desired(self, order: Sequence[int]) -> tuple[int, ...]:
-        """Return the order the groups want, given where the candidates currently sit."""
+        """Return the order the groups and the function placement want."""
+        classes = [index for index in order if index in self.classes]
+        grouped = self._grouped([index for index in order if index not in self.classes])
+        if not classes:
+            return grouped
+        functions = [position for position, index in enumerate(grouped) if self.members[index].kind is MemberKind.FUNCTION]
+        # Classes are only candidates when the block has a movable function, so
+        # ``functions`` is never empty here.
+        if self.function_placement is FunctionPlacement.BEFORE_CLASSES:
+            cut = functions[-1] + 1
+            return (*grouped[:cut], *classes, *grouped[cut:])
+        # Whatever the classes need must stay above them. Asking for exactly that up front
+        # keeps every other function below the classes; left to the constraint repair, the
+        # prerequisites would only rise once everything ranked ahead of them had.
+        early = tuple(index for index in grouped if index in self.class_prerequisites)
+        rest = tuple(index for index in grouped if index not in self.class_prerequisites)
+        cut = next(
+            (position for position, index in enumerate(rest) if self.members[index].kind is MemberKind.FUNCTION), len(rest)
+        )
+        return (*rest[:cut], *early, *classes, *rest[cut:])
+
+    def _grouped(self, order: Sequence[int]) -> tuple[int, ...]:
+        """Return the members in group order, given where they currently sit."""
         buckets: dict[tuple[str, MethodKind], list[_Placed]] = {}
         unmatched: list[int] = []
         for position, index in enumerate(order):
@@ -210,12 +245,14 @@ def sort_file(
     check_only: bool = False,
     show_diff: bool = False,
     respect_dependencies: bool = True,
+    function_placement: FunctionPlacement = FunctionPlacement.AFTER_CLASSES,
 ) -> SortResult:
     """Sort the methods (and optionally module functions) of a Python file.
 
     Omitting ``groups`` or ``method_type_order`` falls back to the built-in defaults.
     Under ``check_only`` nothing is written back to disk. Disabling
     ``respect_dependencies`` can produce a file that no longer imports.
+    ``function_placement`` positions module-level functions relative to classes.
     """
     resolved_groups = groups if groups is not None else default_groups()
     resolved_order = method_type_order if method_type_order is not None else list(_DEFAULT_METHOD_TYPE_ORDER)
@@ -236,6 +273,7 @@ def sort_file(
         resolved_order,
         sort_module=sort_module,
         respect_dependencies=respect_dependencies,
+        function_placement=function_placement,
     )
     new_tree = tree.visit(sorter)
 
@@ -272,6 +310,7 @@ def _plan_block(
     method_type_order: list[MethodKind],
     respect_dependencies: bool,
     lazy_annotations: bool,
+    function_placement: FunctionPlacement,
 ) -> _BlockPlan | None:
     """Classify a block into candidates and anchors, or return None if nothing can move."""
     assignments_sortable = any(group.targets_assignments() for group in groups)
@@ -281,11 +320,15 @@ def _plan_block(
     unmatched: list[Member] = []
     candidates: list[Statement] = []
     anchors: list[Statement] = []
+    classes: list[Statement] = []
     for index, item in enumerate(items):
         member = _as_member(index, item, scope)
         flow = name_flow(item, lazy_annotations=lazy_annotations) if respect_dependencies else EMPTY_FLOW
         statement = Statement(index, flow.provides, flow.requires)
 
+        if isinstance(item, cst.ClassDef) and not has_nosort_comment(item):
+            classes.append(statement)
+            continue
         if member is None or not _is_movable(member, item, assignments_sortable=assignments_sortable):
             anchors.append(statement)
             continue
@@ -298,6 +341,18 @@ def _plan_block(
         else:
             bucket_keys[index] = key
 
+    # Classes only move to keep the module's functions together; anywhere else, or with
+    # no function to keep together, they stay anchored like any other structural item.
+    moves_classes = (
+        scope is Scope.MODULE
+        and function_placement is not FunctionPlacement.INTERLEAVED
+        and any(member.kind is MemberKind.FUNCTION for member in members.values())
+    )
+    if moves_classes:
+        candidates = sorted([*candidates, *classes], key=lambda statement: statement.index)
+    else:
+        anchors.extend(classes)
+
     if not candidates:
         return None
 
@@ -309,7 +364,28 @@ def _plan_block(
         problem=OrderingProblem(tuple(anchors), tuple(candidates), slots, slots),
         groups=groups,
         method_type_order=_effective_method_type_order(method_type_order),
+        classes=frozenset(statement.index for statement in classes) if moves_classes else frozenset(),
+        class_prerequisites=_prerequisites(classes, candidates) if moves_classes else frozenset(),
+        function_placement=function_placement,
     )
+
+
+def _prerequisites(targets: Sequence[Statement], candidates: Sequence[Statement]) -> frozenset[int]:
+    """Return the candidates, other than ``targets``, that ``targets`` need bound first."""
+    providers: dict[str, list[int]] = {}
+    for candidate in candidates:
+        for name in candidate.provides:
+            providers.setdefault(name, []).append(candidate.index)
+    by_index = {candidate.index: candidate for candidate in candidates}
+    excluded = {target.index for target in targets}
+    needed: set[int] = set()
+    pending = [name for target in targets for name in target.requires]
+    while pending:
+        for index in providers.get(pending.pop(), ()):
+            if index not in excluded and index not in needed:
+                needed.add(index)
+                pending.extend(by_index[index].requires)
+    return frozenset(needed)
 
 
 def _is_movable(member: Member, item: cst.BaseStatement, *, assignments_sortable: bool) -> bool:
@@ -362,7 +438,7 @@ def _emit(
     if tuple(order) == plan.identity:
         return BlockSortResult(items, modified=False, unmatched=plan.unmatched, outcome=outcome)
 
-    fill = iter(cast("cst.BaseStatement", plan.members[index].node) for index in order)
+    fill = iter(items[index] for index in order)
     slots = set(plan.identity)
     new_body = [next(fill) if index in slots else item for index, item in enumerate(items)]
     return BlockSortResult(new_body, modified=True, unmatched=plan.unmatched, outcome=outcome)
@@ -439,12 +515,14 @@ class MethodSorter(cst.CSTTransformer):
         *,
         sort_module: bool = True,
         respect_dependencies: bool = True,
+        function_placement: FunctionPlacement = FunctionPlacement.AFTER_CLASSES,
     ) -> None:
         """Initialise the transformer with resolved configuration."""
         self.groups = groups
         self.method_type_order = method_type_order
         self.sort_module = sort_module
         self.respect_dependencies = respect_dependencies
+        self.function_placement = function_placement
         self.lazy_annotations = False
         self.modified = False
         self.blocked = False
@@ -490,6 +568,7 @@ class MethodSorter(cst.CSTTransformer):
             method_type_order=self.method_type_order,
             respect_dependencies=self.respect_dependencies,
             lazy_annotations=self.lazy_annotations,
+            function_placement=self.function_placement,
         )
         self.unmatched.extend(result.unmatched)
         self.blocked = self.blocked or result.outcome is OrderingOutcome.INFEASIBLE

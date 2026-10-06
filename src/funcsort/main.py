@@ -8,8 +8,9 @@ from pathlib import Path
 
 from herogold.argparse import Actions, Argument, parser
 
-from funcsort.cli_types import BoolArgument
+from funcsort.cli_types import BoolArgument, OptionalArgument
 from funcsort.config import Settings, load_settings
+from funcsort.groups import FunctionPlacement
 from funcsort.sorter import sort_file
 
 from . import logger
@@ -29,6 +30,12 @@ class _Cli:
         "respect-dependencies",
         default=None,
         help="Never move a definition above code that uses it at import time",
+    )
+    function_placement = OptionalArgument(
+        "function-placement",
+        type_=FunctionPlacement,
+        default=None,
+        help=f"Module functions relative to classes: {', '.join(FunctionPlacement)}",
     )
     exclude = Argument[list[str]](
         "exclude",
@@ -82,6 +89,7 @@ def main() -> int:
 
     sort_module = settings.sort_module if args.sort_module is None else args.sort_module
     respect_dependencies = settings.respect_dependencies if args.respect_dependencies is None else args.respect_dependencies
+    function_placement = settings.function_placement if args.function_placement is None else args.function_placement
     exclude_patterns = _resolve_exclude(settings, args.exclude)
 
     all_files: list[Path] = []
@@ -108,6 +116,7 @@ def main() -> int:
                 check_only=args.check,
                 show_diff=args.diff,
                 respect_dependencies=respect_dependencies,
+                function_placement=function_placement,
             )
         except Exception as e:  # noqa: BLE001 - report and continue across files
             logger.error(f"Error processing {file_path}: {e}")
