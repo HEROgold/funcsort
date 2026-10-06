@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from funcsort.main import collect_python_files, main
+from funcsort.main import collect_python_files, main, parser
 
 
 class TestCollectPythonFiles:
@@ -225,3 +225,24 @@ class TestRespectDependenciesFlag:
         monkeypatch.setattr(sys, "argv", ["funcsort", *flags, str(source)])
         main()
         return source.read_text()  # skylos: ignore[SKY-D325] the file this test just wrote
+
+
+class TestCliDefaults:
+    """The declarative ``BoolArgument`` defaults reach the parsed namespace."""
+
+    def test_pinned_defaults(self) -> None:
+        args = parser.parse_args(["module.py"])
+        assert args.check is False
+        assert args.diff is False
+        assert args.recursive is True
+
+    def test_unset_defaults_defer_to_config(self) -> None:
+        args = parser.parse_args(["module.py"])
+        assert args.sort_module is None
+        assert args.respect_dependencies is None
+
+    def test_flags_override_defaults(self) -> None:
+        args = parser.parse_args(["--check", "--no-recursive", "--no-sort-module", "module.py"])
+        assert args.check is True
+        assert args.recursive is False
+        assert args.sort_module is False
