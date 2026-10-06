@@ -15,24 +15,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Skip if these inputs already passed
+        id: passed
+        uses: ./.github/actions/already-passed
+        with:
+          name: ci-lint
+          paths: "*.py *.pyi pyproject.toml uv.lock ruff.toml .github/workflows/ci.yml"
+
       - name: Install uv
+        if: steps.passed.outputs.hit != 'true'
         uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
 
       - name: Set up Python
+        if: steps.passed.outputs.hit != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Install dependencies
+        if: steps.passed.outputs.hit != 'true'
         run: uv sync
 
       - name: Run ruff format check
+        if: steps.passed.outputs.hit != 'true'
         run: uv run ruff format --check
 
       - name: Run ruff linter
+        if: steps.passed.outputs.hit != 'true'
         run: uv run ruff check
+
+      - name: Remember this pass
+        if: steps.passed.outputs.hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.passed.outputs.path }}
+          key: ${{ steps.passed.outputs.key }}
 
   test:
     name: Test
@@ -43,21 +62,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Skip if these inputs already passed
+        id: passed
+        uses: ./.github/actions/already-passed
+        with:
+          name: ci-test-${{ matrix.python-version }}
+          paths: src tests scripts pyproject.toml uv.lock pytest.toml coverage.toml funcsort.toml .github/workflows/ci.yml
+
       - name: Install uv
+        if: steps.passed.outputs.hit != 'true'
         uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
 
       - name: Set up Python ${{ matrix.python-version }}
+        if: steps.passed.outputs.hit != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
+        if: steps.passed.outputs.hit != 'true'
         run: uv sync
 
       - name: Run tests
+        if: steps.passed.outputs.hit != 'true'
         run: uv run pytest -v --cov=funcsort --cov-report=term-missing
+
+      - name: Remember this pass
+        if: steps.passed.outputs.hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.passed.outputs.path }}
+          key: ${{ steps.passed.outputs.key }}
 
   publish:
     name: Publish to PyPI

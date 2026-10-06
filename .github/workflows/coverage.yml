@@ -17,21 +17,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Coveralls already holds the report for this exact code; re-uploading it adds nothing.
+      - name: Skip if these inputs were already uploaded
+        id: passed
+        uses: ./.github/actions/already-passed
+        with:
+          name: coverage
+          paths: src tests scripts pyproject.toml uv.lock pytest.toml coverage.toml funcsort.toml .github/workflows/coverage.yml
+
       - name: Install uv
+        if: steps.passed.outputs.hit != 'true'
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
       - name: Set up Python 3.13
+        if: steps.passed.outputs.hit != 'true'
         run: uv python install 3.13
 
       - name: Install dependencies
+        if: steps.passed.outputs.hit != 'true'
         run: uv sync --group dev
 
       - name: Run tests with coverage
+        if: steps.passed.outputs.hit != 'true'
         run: uv run coverage run --source=. -m pytest tests/
 
       - name: Upload coverage data to coveralls.io
+        if: steps.passed.outputs.hit != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
@@ -40,7 +53,15 @@ jobs:
         run: uvx coveralls --service=github
 
       - name: Coveralls Finished
+        if: steps.passed.outputs.hit != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
         run: uvx coveralls --finish
+
+      - name: Remember this upload
+        if: steps.passed.outputs.hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.passed.outputs.path }}
+          key: ${{ steps.passed.outputs.key }}

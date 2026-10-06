@@ -53,18 +53,26 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Skip if these inputs already passed
+        id: passed
+        uses: ./.github/actions/already-passed
+        with:
+          name: lint-public-${{ matrix.tool }}
+          paths: "*.py *.pyi pyproject.toml uv.lock ruff.toml .github/workflows/lint-public.yml"
+
       - name: Install uv (Should be cached from setup job)
+        if: steps.passed.outputs.hit != 'true'
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
 
-      - name: Cache lint results
-        uses: actions/cache@v4
-        with:
-          path: .lint_cache
-          key: ${{ runner.os }}-lint-${{matrix.tool}}-${{ hashFiles('**/tests/**/*.py', 'src/**') }}
-          restore-keys: |
-            ${{ runner.os }}-lint-${{matrix.tool}}
-
       - name: Run type checking - ${{matrix.tool}}
+        if: steps.passed.outputs.hit != 'true'
         run: uv add ${{matrix.tool}} && uv run ${{matrix.tool}} ${{matrix.args}}
+
+      - name: Remember this pass
+        if: steps.passed.outputs.hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.passed.outputs.path }}
+          key: ${{ steps.passed.outputs.key }}
