@@ -1,6 +1,7 @@
 name: Auto-release
 
 on:
+  # skylos: ignore[SKY-D290] jobs only act on push runs of this repository's main branch
   workflow_run:
     workflows: ["Test"]
     branches: [main]
@@ -8,27 +9,32 @@ on:
       - completed
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   new-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
-    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    # Only release from Test runs triggered by a push to this repository, never from a fork PR head named `main`.
+    if: ${{ (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository) || github.event_name == 'workflow_dispatch' }}
     outputs:
       version_changed: ${{ steps.version-check.outputs.version_changed }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0 # Needed to get all tags for version comparison
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.*"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           version: "latest"
 
@@ -50,7 +56,7 @@ jobs:
 
       - name: Create GitHub Release
         if: steps.version-check.outputs.version_changed == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ steps.version-check.outputs.current_version }}
           name: Release v${{ steps.version-check.outputs.current_version }}
@@ -63,7 +69,7 @@ jobs:
       # because another workflow (this one) created the release. (avoiding inf recursion)
       - name: Trigger PyPI workflow
         if: steps.version-check.outputs.version_changed == 'true'
-        uses: peter-evans/repository-dispatch@v2
+        uses: peter-evans/repository-dispatch@bf47d102fdb849e755b0b0023ea3e81a44b6f570 # v2.1.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: new-release-created

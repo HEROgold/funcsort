@@ -1,6 +1,7 @@
 name: Coverage
 
 on:
+  # skylos: ignore[SKY-D290] the job only runs for push runs of this repository's main branch
   workflow_run:
     workflows: ["Test"]
     branches: [main]
@@ -13,12 +14,15 @@ permissions:
 jobs:
   coveralls-upload:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    timeout-minutes: 15
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
 
@@ -34,6 +38,7 @@ jobs:
       - name: Upload coverage data to coveralls.io
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # skylos: ignore[SKY-D299] upload-only Coveralls token; the job never runs untrusted code
           COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
           COVERALLS_SERVICE_NAME: github-actions
           COVERALLS_PARALLEL: true
@@ -42,5 +47,6 @@ jobs:
       - name: Coveralls Finished
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # skylos: ignore[SKY-D299] upload-only Coveralls token; the job never runs untrusted code
           COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
         run: uvx coveralls --finish

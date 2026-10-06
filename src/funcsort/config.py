@@ -115,7 +115,7 @@ def find_config_file() -> Path | None:
     """Find ``funcsort.toml`` (preferred) or ``pyproject.toml`` in cwd or a parent."""
     current_dir = Path.cwd()
     for directory in [current_dir, *current_dir.parents]:
-        for filename in _CONFIG_FILENAMES:
+        for filename in _CONFIG_FILENAMES:  # skylos: ignore[SKY-P403] two filenames per directory: O(depth)
             candidate = directory / filename
             if candidate.exists():
                 return candidate

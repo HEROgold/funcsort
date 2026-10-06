@@ -112,15 +112,13 @@ class Group:
 
     def accepts(self, member: Member) -> bool:
         """Return whether ``member`` belongs to this group."""
-        if member.kind not in self.kinds:
-            return False
-        if self.types is not None and member.method_type not in self.types:
-            return False
-        if self.scopes is not None and member.scope not in self.scopes:
-            return False
-        if self.decorators is not None and not self._matches_decorator(member):
-            return False
-        return any(matcher.search(member.name) for matcher in self.matchers)
+        return (
+            member.kind in self.kinds
+            and (self.types is None or member.method_type in self.types)
+            and (self.scopes is None or member.scope in self.scopes)
+            and (self.decorators is None or self._matches_decorator(member))
+            and any(matcher.search(member.name) for matcher in self.matchers)
+        )
 
     def targets_assignments(self) -> bool:
         """Return whether this group can ever match an assignment member."""

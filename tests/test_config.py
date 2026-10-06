@@ -12,7 +12,7 @@ DEFAULT_GROUP_NAMES = ["creational", "dunder", "public", "protected", "private"]
 
 
 def _write(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str, name: str = "pyproject.toml") -> None:
-    (tmp_path / name).write_text(content)
+    (tmp_path / name).write_text(content)  # skylos: ignore[SKY-D324] fresh file in pytest tmp_path
     monkeypatch.chdir(tmp_path)
 
 
@@ -211,7 +211,7 @@ class TestDiscovery:
 
     def testfind_config_file_found(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         path = tmp_path / "funcsort.toml"
-        path.write_text("[tool.funcsort]\n")
+        path.write_text("[tool.funcsort]\n")  # skylos: ignore[SKY-D324] fresh file in pytest tmp_path
         monkeypatch.chdir(tmp_path)
         assert find_config_file() == path
 

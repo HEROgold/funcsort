@@ -136,21 +136,22 @@ def main() -> int:
 
 def _matches_any_pattern(file_path: Path, patterns: list[str]) -> bool:
     """Return whether ``file_path`` matches any of the glob ``patterns``."""
+    return any(_matches_pattern(file_path, pattern) for pattern in patterns)
+
+
+def _matches_pattern(file_path: Path, pattern: str) -> bool:
+    """Return whether ``file_path`` matches the glob ``pattern``.
+
+    A pattern without ``/`` matches the full path or the file name; one with ``/``
+    matches the full path or any trailing run of path components.
+    """
     path_str = str(file_path)
-    for pattern in patterns:
-        if fnmatch.fnmatch(path_str, pattern):
-            return True
-        if "/" not in pattern:
-            if fnmatch.fnmatch(file_path.name, pattern):
-                return True
-            continue
-        if fnmatch.fnmatch(path_str, f"*/{pattern}"):
-            return True
-        for part_idx in range(len(file_path.parts)):
-            subpath = str(Path(*file_path.parts[part_idx:]))
-            if fnmatch.fnmatch(subpath, pattern):
-                return True
-    return False
+    if fnmatch.fnmatch(path_str, pattern):
+        return True
+    if "/" not in pattern:
+        return fnmatch.fnmatch(file_path.name, pattern)
+    subpaths = (str(Path(*file_path.parts[index:])) for index in range(len(file_path.parts)))
+    return fnmatch.fnmatch(path_str, f"*/{pattern}") or any(fnmatch.fnmatch(subpath, pattern) for subpath in subpaths)
 
 
 def _resolve_exclude(settings: Settings, cli_exclude: list[str] | None) -> list[str] | None:
