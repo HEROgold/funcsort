@@ -17,6 +17,14 @@ ignore = [
 # into a settings object would only move the argument list somewhere else.
 max-args = 8
 
+# ``option(default)`` declares a Settings field (see funcsort.config): it returns a
+# dataclass field specifier, and the confkit default it takes is positional only.
+[lint.flake8-bugbear]
+extend-immutable-calls = ["funcsort.config.option"]
+
+[lint.flake8-boolean-trap]
+extend-allowed-calls = ["funcsort.config.option"]
+
 [lint.per-file-ignores]
 "tests/**/*.py" = [
   "S101",    # assert is the point of a test

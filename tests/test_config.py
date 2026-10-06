@@ -1,5 +1,6 @@
 """Tests for configuration loading."""
 
+from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -128,6 +129,51 @@ class TestScalarSettings:
     def test_respect_dependencies_toggle(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _write(tmp_path, monkeypatch, "[tool.funcsort]\nrespect_dependencies = false\n")
         assert load_settings().respect_dependencies is False
+
+
+class TestDeclaration:
+    """Each Settings field is its own, single confkit declaration."""
+
+    def test_every_field_is_a_confkit_option(self) -> None:
+        assert all("confkit_data_type" in entry.metadata for entry in fields(Settings))
+
+    def test_empty_section_matches_missing_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _write(tmp_path, monkeypatch, "[tool.funcsort]\n")
+        assert load_settings() == Settings()
+
+    def test_every_field_is_read_from_its_key(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        content = (
+            "[tool.funcsort]\n"
+            'method_type_order = ["static", "class", "instance"]\n'
+            'exclude = ["build/*"]\n'
+            "sort_module = false\n"
+            "respect_dependencies = false\n"
+            "[[tool.funcsort.groups]]\n"
+            'name = "all"\n'
+            'match = ".*"\n'
+        )
+        _write(tmp_path, monkeypatch, content)
+        loaded, default = load_settings(), Settings()
+        unchanged = [entry.name for entry in fields(Settings) if getattr(loaded, entry.name) == getattr(default, entry.name)]
+        assert unchanged == []
+
+    def test_invalid_value_falls_back_to_its_default(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        _write(tmp_path, monkeypatch, '[tool.funcsort]\nsort_module = "maybe"\nrespect_dependencies = false\n')
+        settings = load_settings()
+        assert settings.sort_module is True
+        assert settings.respect_dependencies is False
+        assert "Invalid sort_module" in capsys.readouterr().out
+
+    def test_loading_never_writes_the_config_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        content = "[project]\nname = 'test'\n"
+        _write(tmp_path, monkeypatch, content)
+        load_settings()
+        assert (tmp_path / "pyproject.toml").read_text() == content
 
 
 class TestDiscovery:

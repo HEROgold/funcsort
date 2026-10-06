@@ -31,6 +31,9 @@ respect_dependencies = true
 See [Dependency safety](dependency-safety.md) for what `respect_dependencies` actually
 analyses.
 
+An invalid value (say `sort_module = "maybe"`) is reported with a warning and replaced by
+that key's default; the rest of the configuration still applies.
+
 ## Custom groups (full control)
 
 For full control, define an ordered list of `[[tool.funcsort.groups]]`. This **replaces**
