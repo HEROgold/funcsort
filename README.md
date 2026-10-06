@@ -173,7 +173,7 @@ uv run funcsort --check example.py
 uv run funcsort --diff example.py
 
 # Build the documentation site locally
-uv run --group docs mkdocs serve
+uv run --group docs zensical serve
 ```
 
 ## License
