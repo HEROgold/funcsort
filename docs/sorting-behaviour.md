@@ -34,3 +34,21 @@ Example order with the default configuration:
 
 Group order is not the only thing that decides where a definition may go — see
 [Dependency safety](dependency-safety.md) for the constraints layered on top of it.
+
+## Module functions and classes
+
+At module level, functions are kept together on one side of the classes instead of being
+split around them. `function_placement` picks the side:
+
+- `after-classes` (default): every module-level function, public or private, goes below
+  every module-level class.
+- `before-classes`: every module-level function goes above every module-level class.
+- `interleaved`: classes stay where they are and functions fill the gaps around them in
+  group order, so public functions can rise above the classes while private ones sink
+  below them.
+
+Classes keep their relative order, and the functions keep their group order. A function
+a class needs while it is defined (a class decorator, a call in the class body) stays
+above that class, and a function that needs a class while it is defined (a parameter
+default, say) stays below it, unless `respect_dependencies` is off. A class marked
+`# nosort` never moves. Nested classes and class bodies are unaffected.

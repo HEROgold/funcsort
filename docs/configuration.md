@@ -24,12 +24,17 @@ sort_module = true
 # (default: true). Turning this off can break imports.
 respect_dependencies = true
 
+# Where module-level functions go relative to module-level classes
+# Options: "after-classes", "before-classes", "interleaved"   Default: "after-classes"
+function_placement = "after-classes"
+
 # Exclude files/directories matching these glob patterns (optional)
 # exclude = ["tests/*", "migrations/*.py"]
 ```
 
 See [Dependency safety](dependency-safety.md) for what `respect_dependencies` actually
-analyses.
+analyses, and [Sorting behaviour](sorting-behaviour.md#module-functions-and-classes) for
+the `function_placement` layouts.
 
 An invalid value (say `sort_module = "maybe"`) is reported with a warning and replaced by
 that key's default; the rest of the configuration still applies.

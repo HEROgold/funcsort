@@ -1,2 +1,6 @@
 # No groups configured -> the built-in default groups apply
 # (creational -> dunder -> public -> protected -> private).
+
+[tool.funcsort]
+# Keep this repository's own layout: module functions sit around classes by group order.
+function_placement = "interleaved"

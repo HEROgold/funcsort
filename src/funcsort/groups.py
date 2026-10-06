@@ -35,6 +35,20 @@ class Scope(StrEnum):
     MODULE = "module"
 
 
+class FunctionPlacement(StrEnum):
+    """Where module-level functions go relative to module-level classes."""
+
+    AFTER_CLASSES = "after-classes"
+    """Every module-level function sits below every module-level class."""
+
+    BEFORE_CLASSES = "before-classes"
+    """Every module-level function sits above every module-level class."""
+
+    INTERLEAVED = "interleaved"
+    """Classes stay where they are and functions fill the gaps around them in group order,
+    so public functions can rise above the classes while private ones sink below them."""
+
+
 class MemberKind(StrEnum):
     """What kind of statement a sortable member is."""
 
