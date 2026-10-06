@@ -257,7 +257,7 @@ def sort_file(
     resolved_groups = groups if groups is not None else default_groups()
     resolved_order = method_type_order if method_type_order is not None else list(_DEFAULT_METHOD_TYPE_ORDER)
 
-    source_code = file_path.read_text(encoding="utf-8")
+    source_code = file_path.read_text(encoding="utf-8")  # skylos: ignore[SKY-D325] the file the user asked to sort
 
     try:
         tree = cst.parse_module(source_code)
@@ -297,7 +297,7 @@ def sort_file(
         logger.diff("".join(diff))
 
     if not check_only:
-        file_path.write_text(new_code, encoding="utf-8")
+        file_path.write_text(new_code, encoding="utf-8")  # skylos: ignore[SKY-D324] rewriting the user's file is the tool's job
 
     return SortResult(file_path, modified=True, unmatched=tuple(sorter.unmatched))
 
