@@ -68,7 +68,7 @@ jobs:
           gh pr create \
             --title "chore: bump version to ${{ steps.bump-version.outputs.new-version }}" \
             --body "Automated version bump to ${{ steps.bump-version.outputs.new-version }}" \
-            --base main \
-            --admin
+            --base "${{ github.event.pull_request.base.ref }}" \
+            --head "$BRANCH_NAME"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
