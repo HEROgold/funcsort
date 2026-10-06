@@ -27,6 +27,7 @@ from confkit import BaseDataType, Config
 
 from . import logger
 from .config_types import GroupList, MethodTypeOrder, StringTuple
+from .groups import FunctionPlacement
 
 if TYPE_CHECKING:
     from .groups import Group, MethodKind
@@ -73,6 +74,8 @@ class Settings:
     Whether ordering keeps a definition ahead of anything that
     reads it at import time (decorators, parameter defaults, assignment values).
     """
+    function_placement: FunctionPlacement = option(FunctionPlacement.AFTER_CLASSES)
+    """Where module-level functions go relative to module-level classes."""
 
 
 def load_settings() -> Settings:

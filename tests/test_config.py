@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from funcsort.config import Settings, find_config_file, load_settings
-from funcsort.groups import Group, Member, MemberKind, MethodKind, Scope, classify
+from funcsort.groups import FunctionPlacement, Group, Member, MemberKind, MethodKind, Scope, classify
 
 DEFAULT_GROUP_NAMES = ["creational", "dunder", "public", "protected", "private"]
 
@@ -41,6 +41,7 @@ class TestDefaults:
         assert settings.exclude == ()
         assert settings.sort_module is True
         assert settings.respect_dependencies is True
+        assert settings.function_placement is FunctionPlacement.AFTER_CLASSES
 
     def test_missing_tool_section(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _write(tmp_path, monkeypatch, "[project]\nname = 'test'\n")
@@ -130,6 +131,14 @@ class TestScalarSettings:
         _write(tmp_path, monkeypatch, "[tool.funcsort]\nrespect_dependencies = false\n")
         assert load_settings().respect_dependencies is False
 
+    def test_function_placement(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _write(tmp_path, monkeypatch, '[tool.funcsort]\nfunction_placement = "interleaved"\n')
+        assert load_settings().function_placement is FunctionPlacement.INTERLEAVED
+
+    def test_invalid_function_placement(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _write(tmp_path, monkeypatch, '[tool.funcsort]\nfunction_placement = "sideways"\n')
+        assert load_settings().function_placement is FunctionPlacement.AFTER_CLASSES
+
 
 class TestDeclaration:
     """Each Settings field is its own, single confkit declaration."""
@@ -148,6 +157,7 @@ class TestDeclaration:
             'exclude = ["build/*"]\n'
             "sort_module = false\n"
             "respect_dependencies = false\n"
+            'function_placement = "before-classes"\n'
             "[[tool.funcsort.groups]]\n"
             'name = "all"\n'
             'match = ".*"\n'

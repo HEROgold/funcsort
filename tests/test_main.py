@@ -216,12 +216,48 @@ class TestRespectDependenciesFlag:
         assert text.index("def _helper") < text.index("def test_thing")
 
     def _run(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *flags: str) -> str:
-        # ``source`` is created here, inside pytest's per-test tmp_path. There is no
-        # attacker-controlled path and nothing pre-existing to follow, so the symlink
-        # and read-size guards the scanner asks for would guard nothing.
-        source = tmp_path / "module.py"
-        source.write_text(_DEPENDENT_SOURCE)  # skylos: ignore[SKY-D324] fresh file in pytest tmp_path
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.setattr(sys, "argv", ["funcsort", *flags, str(source)])
-        main()
-        return source.read_text()  # skylos: ignore[SKY-D325] the file this test just wrote
+        return _run(tmp_path, monkeypatch, _DEPENDENT_SOURCE, *flags)
+
+
+_MIXED_SOURCE = """def func1():
+    pass
+
+
+class Example:
+    pass
+
+
+def _func2():
+    pass
+"""
+
+
+class TestFunctionPlacementFlag:
+    """The CLI flag reaches sort_file, and the config value wins when it is absent."""
+
+    def test_after_classes_by_default(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        text = _run(tmp_path, monkeypatch, _MIXED_SOURCE)
+        assert text.index("class Example") < text.index("def func1")
+
+    def test_config_wins_when_flag_absent(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        (tmp_path / "funcsort.toml").write_text('[tool.funcsort]\nfunction_placement = "interleaved"\n')
+        text = _run(tmp_path, monkeypatch, _MIXED_SOURCE)
+        assert text == _MIXED_SOURCE
+
+    def test_flag_overrides_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        (tmp_path / "funcsort.toml").write_text('[tool.funcsort]\nfunction_placement = "interleaved"\n')
+        text = _run(tmp_path, monkeypatch, _MIXED_SOURCE, "--function-placement", "before-classes")
+        assert text.index("def _func2") < text.index("class Example")
+
+
+def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str, *flags: str) -> str:
+    """Run the CLI on a module holding ``content`` and return the module afterwards."""
+    # ``source`` is created here, inside pytest's per-test tmp_path. There is no
+    # attacker-controlled path and nothing pre-existing to follow, so the symlink
+    # and read-size guards the scanner asks for would guard nothing.
+    source = tmp_path / "module.py"
+    source.write_text(content)  # skylos: ignore[SKY-D324] fresh file in pytest tmp_path
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["funcsort", *flags, str(source)])
+    main()
+    return source.read_text()  # skylos: ignore[SKY-D325] the file this test just wrote

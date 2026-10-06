@@ -9,6 +9,7 @@ from pathlib import Path
 from herogold.argparse import Actions, Argument, parser
 
 from funcsort.config import Settings, load_settings
+from funcsort.groups import FunctionPlacement
 from funcsort.sorter import sort_file
 
 from . import logger
@@ -29,6 +30,12 @@ class _Cli:
         default=True,
         help="Never move a definition above code that uses it at import time",
     )
+    function_placement = Argument(
+        "function-placement",
+        type_=FunctionPlacement,
+        default=FunctionPlacement.AFTER_CLASSES,
+        help=f"Module functions relative to classes: {', '.join(FunctionPlacement)}",
+    )
     exclude = Argument[list[str]](
         "exclude",
         action=Actions.APPEND,
@@ -42,10 +49,12 @@ class _Cli:
 del _Cli
 
 # STORE_BOOL registers a --flag/--no-flag pair without an explicit default, so pin the
-# real defaults here. sort_module and respect_dependencies default to None so the config
-# value wins unless the user passes the flag explicitly.
+# real defaults here. sort_module, respect_dependencies and function_placement default to
+# None so the config value wins unless the user passes the flag explicitly.
 parser.description = "Sort class methods and module-level functions into configurable groups"
-parser.set_defaults(check=False, diff=False, recursive=True, sort_module=None, respect_dependencies=None)
+parser.set_defaults(
+    check=False, diff=False, recursive=True, sort_module=None, respect_dependencies=None, function_placement=None
+)
 parser.add_argument("paths", nargs="+", type=Path, help="Python files or directories to sort")
 
 
@@ -85,6 +94,7 @@ def main() -> int:
 
     sort_module = settings.sort_module if args.sort_module is None else args.sort_module
     respect_dependencies = settings.respect_dependencies if args.respect_dependencies is None else args.respect_dependencies
+    function_placement = settings.function_placement if args.function_placement is None else args.function_placement
     exclude_patterns = _resolve_exclude(settings, args.exclude)
 
     all_files: list[Path] = []
@@ -111,6 +121,7 @@ def main() -> int:
                 check_only=args.check,
                 show_diff=args.diff,
                 respect_dependencies=respect_dependencies,
+                function_placement=function_placement,
             )
         except Exception as e:  # noqa: BLE001 - report and continue across files
             logger.error(f"Error processing {file_path}: {e}")
