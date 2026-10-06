@@ -8,6 +8,7 @@ from pathlib import Path
 
 from herogold.argparse import Actions, Argument, parser
 
+from funcsort.cli_types import BoolArgument, OptionalArgument
 from funcsort.config import Settings, load_settings
 from funcsort.groups import FunctionPlacement
 from funcsort.sorter import sort_file
@@ -20,20 +21,20 @@ _EXCLUDE_DIRS = {"venv", "__pycache__", "node_modules"}
 class _Cli:
     """Declarative CLI flags; defining them registers the options on the shared parser."""
 
-    check = Argument("check", action=Actions.STORE_BOOL, default=False, help="Check without modifying files")
-    diff = Argument("diff", action=Actions.STORE_BOOL, default=False, help="Show a diff of the changes")
-    recursive = Argument("recursive", action=Actions.STORE_BOOL, default=True, help="Recurse into directories")
-    sort_module = Argument("sort-module", action=Actions.STORE_BOOL, default=True, help="Sort module-level functions")
-    respect_dependencies = Argument(
+    check = BoolArgument("check", default=False, help="Check without modifying files")
+    diff = BoolArgument("diff", default=False, help="Show a diff of the changes")
+    recursive = BoolArgument("recursive", default=True, help="Recurse into directories")
+    # ``None`` leaves these unset so the config value wins unless the user passes the flag.
+    sort_module = BoolArgument("sort-module", default=None, help="Sort module-level functions")
+    respect_dependencies = BoolArgument(
         "respect-dependencies",
-        action=Actions.STORE_BOOL,
-        default=True,
+        default=None,
         help="Never move a definition above code that uses it at import time",
     )
-    function_placement = Argument(
+    function_placement = OptionalArgument(
         "function-placement",
         type_=FunctionPlacement,
-        default=FunctionPlacement.AFTER_CLASSES,
+        default=None,
         help=f"Module functions relative to classes: {', '.join(FunctionPlacement)}",
     )
     exclude = Argument[list[str]](
@@ -48,13 +49,7 @@ class _Cli:
 # ``__set_name__``; the class itself is not needed afterwards.
 del _Cli
 
-# STORE_BOOL registers a --flag/--no-flag pair without an explicit default, so pin the
-# real defaults here. sort_module, respect_dependencies and function_placement default to
-# None so the config value wins unless the user passes the flag explicitly.
 parser.description = "Sort class methods and module-level functions into configurable groups"
-parser.set_defaults(
-    check=False, diff=False, recursive=True, sort_module=None, respect_dependencies=None, function_placement=None
-)
 parser.add_argument("paths", nargs="+", type=Path, help="Python files or directories to sort")
 
 
@@ -141,21 +136,22 @@ def main() -> int:
 
 def _matches_any_pattern(file_path: Path, patterns: list[str]) -> bool:
     """Return whether ``file_path`` matches any of the glob ``patterns``."""
+    return any(_matches_pattern(file_path, pattern) for pattern in patterns)
+
+
+def _matches_pattern(file_path: Path, pattern: str) -> bool:
+    """Return whether ``file_path`` matches the glob ``pattern``.
+
+    A pattern without ``/`` matches the full path or the file name; one with ``/``
+    matches the full path or any trailing run of path components.
+    """
     path_str = str(file_path)
-    for pattern in patterns:
-        if fnmatch.fnmatch(path_str, pattern):
-            return True
-        if "/" not in pattern:
-            if fnmatch.fnmatch(file_path.name, pattern):
-                return True
-            continue
-        if fnmatch.fnmatch(path_str, f"*/{pattern}"):
-            return True
-        for part_idx in range(len(file_path.parts)):
-            subpath = str(Path(*file_path.parts[part_idx:]))
-            if fnmatch.fnmatch(subpath, pattern):
-                return True
-    return False
+    if fnmatch.fnmatch(path_str, pattern):
+        return True
+    if "/" not in pattern:
+        return fnmatch.fnmatch(file_path.name, pattern)
+    subpaths = (str(Path(*file_path.parts[index:])) for index in range(len(file_path.parts)))
+    return fnmatch.fnmatch(path_str, f"*/{pattern}") or any(fnmatch.fnmatch(subpath, pattern) for subpath in subpaths)
 
 
 def _resolve_exclude(settings: Settings, cli_exclude: list[str] | None) -> list[str] | None:

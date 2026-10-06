@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from funcsort.main import collect_python_files, main
+from funcsort.main import collect_python_files, main, parser
 
 
 class TestCollectPythonFiles:
@@ -248,6 +248,28 @@ class TestFunctionPlacementFlag:
         (tmp_path / "funcsort.toml").write_text('[tool.funcsort]\nfunction_placement = "interleaved"\n')
         text = _run(tmp_path, monkeypatch, _MIXED_SOURCE, "--function-placement", "before-classes")
         assert text.index("def _func2") < text.index("class Example")
+
+
+class TestCliDefaults:
+    """The declarative ``BoolArgument``/``OptionalArgument`` defaults reach the parsed namespace."""
+
+    def test_pinned_defaults(self) -> None:
+        args = parser.parse_args(["module.py"])
+        assert args.check is False
+        assert args.diff is False
+        assert args.recursive is True
+
+    def test_unset_defaults_defer_to_config(self) -> None:
+        args = parser.parse_args(["module.py"])
+        assert args.sort_module is None
+        assert args.respect_dependencies is None
+        assert args.function_placement is None
+
+    def test_flags_override_defaults(self) -> None:
+        args = parser.parse_args(["--check", "--no-recursive", "--no-sort-module", "module.py"])
+        assert args.check is True
+        assert args.recursive is False
+        assert args.sort_module is False
 
 
 def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str, *flags: str) -> str:

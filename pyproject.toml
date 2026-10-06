@@ -15,14 +15,13 @@ dev = [
   "zuban>=0.9.0",
 ]
 docs = [
-    "mkdocs>=1.6.1",
-    "mkdocs-material>=9.7.7",
     "mkdocstrings[python]>=1.0.6",
+    "zensical>=0.0.68",
 ]
 
 [project]
 name = "funcsort"
-version = "1.0.0"
+version = "2.0.0"
 description = "Sort class methods and module-level functions into configurable, regex-matched groups"
 authors = [{ name = "HEROgold" }]
 readme = "README.md"
@@ -72,6 +71,16 @@ Issues = "https://github.com/HEROgold/funcsort/issues"
 # test class in the repository trips it; the suggested remedy is one class per test
 # method, which would replace the behavioural grouping the suite is organised around.
 ignore = ["SKY-D223", "SKY-Q702"]
+
+[tool.skylos.gate]
+# The default thresholds, declared explicitly so the CI quality gate is reviewable here.
+max_critical = 0
+max_high = 5
+max_security = 10
+max_quality = 10
+
+[tool.mypy]
+python_version = "3.12"
 
 [tool.pyrefly]
 # The tests are a package of their own (``tests/__init__.py``); without this pyrefly

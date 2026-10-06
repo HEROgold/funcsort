@@ -55,6 +55,9 @@ _DEFAULT_METHOD_TYPE_ORDER = [MethodKind.INSTANCE, MethodKind.CLASS, MethodKind.
 # from spinning.
 _MAX_ORDERING_PASSES = 8
 
+# Comment directive that opts a file, class, or member out of sorting.
+_NOSORT = "nosort"
+
 
 @dataclass(frozen=True)
 class BlockSortResult:
@@ -82,17 +85,17 @@ def has_nosort_comment(node: cst.CSTNode) -> bool:
     and the trailing comment of a block header (functions/classes). Case-insensitive.
     """
     for line in getattr(node, "leading_lines", []):
-        if isinstance(line, cst.EmptyLine) and line.comment and "nosort" in line.comment.value.lower():
+        if isinstance(line, cst.EmptyLine) and line.comment and _NOSORT in line.comment.value.lower():
             return True
 
     trailing = getattr(node, "trailing_whitespace", None)
-    if isinstance(trailing, cst.TrailingWhitespace) and trailing.comment and "nosort" in trailing.comment.value.lower():
+    if isinstance(trailing, cst.TrailingWhitespace) and trailing.comment and _NOSORT in trailing.comment.value.lower():
         return True
 
     body = getattr(node, "body", None)
     header = getattr(body, "header", None)
     return bool(
-        isinstance(header, cst.TrailingWhitespace) and header.comment and "nosort" in header.comment.value.lower(),
+        isinstance(header, cst.TrailingWhitespace) and header.comment and _NOSORT in header.comment.value.lower(),
     )
 
 
@@ -101,7 +104,7 @@ def file_has_nosort(module: cst.Module) -> bool:
     for line in module.header:
         if isinstance(line, cst.EmptyLine) and line.comment:  # pyright: ignore[reportUnnecessaryIsInstance]
             comment_text = line.comment.value.lower()
-            if "nosort" in comment_text and "file" in comment_text:
+            if _NOSORT in comment_text and "file" in comment_text:
                 return True
     return False
 
@@ -257,7 +260,7 @@ def sort_file(
     resolved_groups = groups if groups is not None else default_groups()
     resolved_order = method_type_order if method_type_order is not None else list(_DEFAULT_METHOD_TYPE_ORDER)
 
-    source_code = file_path.read_text(encoding="utf-8")
+    source_code = file_path.read_text(encoding="utf-8")  # skylos: ignore[SKY-D325] the file the user asked to sort
 
     try:
         tree = cst.parse_module(source_code)
@@ -297,7 +300,7 @@ def sort_file(
         logger.diff("".join(diff))
 
     if not check_only:
-        file_path.write_text(new_code, encoding="utf-8")
+        file_path.write_text(new_code, encoding="utf-8")  # skylos: ignore[SKY-D324] rewriting the user's file is the tool's job
 
     return SortResult(file_path, modified=True, unmatched=tuple(sorter.unmatched))
 
@@ -467,13 +470,12 @@ def _assignment_target_name(line: cst.SimpleStatementLine) -> str | None:
     if len(line.body) != 1:
         return None
     statement = line.body[0]
-    if isinstance(statement, cst.Assign):
-        if len(statement.targets) == 1 and isinstance(statement.targets[0].target, cst.Name):
-            return statement.targets[0].target.value
-        return None
-    if isinstance(statement, cst.AnnAssign) and isinstance(statement.target, cst.Name):
-        return statement.target.value
-    return None
+    target: cst.BaseAssignTargetExpression | None = None
+    if isinstance(statement, cst.Assign) and len(statement.targets) == 1:
+        target = statement.targets[0].target
+    elif isinstance(statement, cst.AnnAssign):
+        target = statement.target
+    return target.value if isinstance(target, cst.Name) else None
 
 
 # A candidate's body index paired with its position in the candidate sequence (the index
