@@ -26,28 +26,35 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Cache pytest results
-        id: cache-pytest
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      - name: Skip if these inputs already passed
+        id: passed
+        uses: ./.github/actions/already-passed
         with:
-          path: .pytest_cache
-          key: ${{ runner.os }}-pytest-${{ matrix.python-version }}-${{ hashFiles('**/tests/**/*.py', 'src/**') }}
+          name: test-${{ matrix.python-version }}
+          paths: src tests scripts pyproject.toml uv.lock pytest.toml coverage.toml funcsort.toml .github/workflows/test.yml
 
       - name: Install uv
-        if: steps.cache-pytest.outputs.cache-hit != 'true'
+        if: steps.passed.outputs.hit != 'true'
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
 
       - name: Set up Python ${{ matrix.python-version }}
-        if: steps.cache-pytest.outputs.cache-hit != 'true'
+        if: steps.passed.outputs.hit != 'true'
         run: uv python install ${{ matrix.python-version }}
 
       - name: Install dependencies
-        if: steps.cache-pytest.outputs.cache-hit != 'true'
+        if: steps.passed.outputs.hit != 'true'
         run: uv sync --group dev
 
       - name: Run tests
-        if: steps.cache-pytest.outputs.cache-hit != 'true'
+        if: steps.passed.outputs.hit != 'true'
         # Avoid executing examples in CI; they could run untrusted code from PRs
         run: uv run pytest . --ignore=tests/test_examples_run.py
+
+      - name: Remember this pass
+        if: steps.passed.outputs.hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.passed.outputs.path }}
+          key: ${{ steps.passed.outputs.key }}

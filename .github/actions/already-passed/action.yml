@@ -1,0 +1,61 @@
+name: Already passed
+description: >
+  Hash the files a job depends on and look up a cache marker saved by an earlier
+  successful run over the exact same inputs. Gate the expensive steps on
+  `outputs.hit != 'true'`, then save the marker with `actions/cache/save` at the end
+  of the job (default `if: success()`), so only passing runs are remembered.
+  Caches made on main are readable from every PR, so a docs-only PR reuses main's
+  test result instead of re-running the suite.
+
+inputs:
+  name:
+    description: Unique name for this job (include matrix values, e.g. `test-3.13`).
+    required: true
+  paths:
+    description: >
+      Whitespace-separated git pathspecs the job depends on (directories, files or
+      patterns such as `*.py`). Include the calling workflow file so editing it re-runs.
+    required: true
+  force:
+    description: Skip the lookup and always run. Manual `workflow_dispatch` runs force by default.
+    default: ${{ github.event_name == 'workflow_dispatch' }}
+
+outputs:
+  hit:
+    description: "`true` when this exact input set already passed."
+    value: ${{ steps.lookup.outputs.cache-hit }}
+  key:
+    description: Cache key to pass to `actions/cache/save`.
+    value: ${{ steps.hash.outputs.key }}
+  path:
+    description: Marker path to pass to `actions/cache/save`.
+    value: ${{ steps.hash.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - name: Hash inputs
+      id: hash
+      shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        PATHS: ${{ inputs.paths }}
+      run: |
+        # Hash path + content of every tracked file matching the pathspecs, plus this action itself.
+        # shellcheck disable=SC2086 # word-splitting PATHS into pathspecs is intended
+        digest=$(git ls-files -z -- $PATHS "$GITHUB_ACTION_PATH" \
+          | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+        marker=".ci-passed/$NAME"
+        mkdir -p .ci-passed
+        echo "$GITHUB_SHA" > "$marker"
+        echo "key=${RUNNER_OS}-passed-${NAME}-${digest}" >> "$GITHUB_OUTPUT"
+        echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+    - name: Look up previous pass
+      id: lookup
+      if: inputs.force != 'true'
+      uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      with:
+        path: ${{ steps.hash.outputs.path }}
+        key: ${{ steps.hash.outputs.key }}
+        lookup-only: true
