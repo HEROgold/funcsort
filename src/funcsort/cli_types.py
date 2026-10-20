@@ -5,7 +5,9 @@
 and :class:`BoolArgument` close both gaps so the declarative CLI block stays the single
 source of truth for every default.
 
-This module depends only on herogold's public API and never modifies the herogold package.
+It never modifies the herogold package, but :class:`OptionalArgument` overrides herogold's
+private ``Argument._setup_parser_argument(owner, name)`` (herogold 5), so a herogold release
+that changes it can break funcsort. The ``fresh-install`` CI job catches that.
 """
 
 from __future__ import annotations
@@ -38,9 +40,9 @@ class OptionalArgument[T](Argument[T | None]):
         super().__init__(*names, type_=type_, action=action, default_factory=lambda: default, help=help)
 
     @override
-    def _setup_parser_argument(self, name: str) -> None:
+    def _setup_parser_argument(self, owner: type, name: str) -> None:
         """Register the option, then pin the declared default for its destination."""
-        super()._setup_parser_argument(name)
+        super()._setup_parser_argument(owner, name)
         parser.set_defaults(**{name: self.default})
 
 

@@ -47,7 +47,7 @@ classifiers = [
 ]
 dependencies = [
   "confkit[msgspec]>=2.1.0",
-  "herogold>=3.6.0",
+  "herogold>=5.0.0",
   "libcst>=1.8.6",
   "rich>=15.0.0",
 ]
