@@ -194,6 +194,23 @@ def test_thing():
 """
 
 
+class TestTriStateBoolFlags:
+    """A ``BoolArgument`` with ``default=None`` stays unset until a flag is passed."""
+
+    def test_unset_without_flag(self) -> None:
+        assert parser.parse_args(["x.py"]).sort_module is None
+
+    def test_flag_gives_true(self) -> None:
+        assert parser.parse_args(["--sort-module", "x.py"]).sort_module is True
+
+    def test_no_flag_gives_false(self) -> None:
+        assert parser.parse_args(["--no-sort-module", "x.py"]).sort_module is False
+
+    def test_pinned_defaults(self) -> None:
+        args = parser.parse_args(["x.py"])
+        assert (args.check, args.diff, args.recursive) == (False, False, True)
+
+
 class TestRespectDependenciesFlag:
     """The CLI flag reaches sort_file, and the config value wins when it is absent."""
 
